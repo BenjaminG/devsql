@@ -67,6 +67,11 @@ impl UnifiedEngine {
         Ok(())
     }
 
+    /// Load code analysis tables needed for the query
+    pub fn load_code_tables(&mut self, tables: &[&str]) -> Result<()> {
+        crate::providers::load_all_code_tables(&self.conn, &self.git_repo_path, tables)
+    }
+
     /// Execute a SQL query and return results as JSON values
     pub fn query(&self, sql: &str) -> Result<Vec<Value>> {
         let mut stmt = self.conn.prepare(sql)?;
@@ -149,7 +154,61 @@ impl UnifiedEngine {
             )",
             [],
         )?;
-        // TODO: Load from transcripts/*.jsonl
+
+        let transcripts_dir = self.claude_data_dir.join("transcripts");
+        if !transcripts_dir.is_dir() {
+            return Ok(());
+        }
+
+        let entries = match std::fs::read_dir(&transcripts_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(()),
+        };
+
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let session_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for line in content.lines() {
+                if let Ok(entry) = serde_json::from_str::<Value>(line) {
+                    let msg_type = entry
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    let msg_content = entry
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| entry.get("message").and_then(|v| v.as_str()))
+                        .unwrap_or("");
+
+                    let tool_name = entry
+                        .get("tool_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    self.conn.execute(
+                        "INSERT INTO transcripts (type, content, tool_name, session_id)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![msg_type, msg_content, tool_name, session_id],
+                    )?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -223,7 +282,48 @@ impl UnifiedEngine {
             )",
             [],
         )?;
-        // TODO: Load from todos/*.json
+
+        let todos_dir = self.claude_data_dir.join("todos");
+        if !todos_dir.is_dir() {
+            return Ok(());
+        }
+
+        let entries = match std::fs::read_dir(&todos_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(()),
+        };
+
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            // Try parsing as a JSON array of todo items
+            if let Ok(items) = serde_json::from_str::<Vec<Value>>(&content) {
+                for item in &items {
+                    let todo_content = item
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let status = item
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    self.conn.execute(
+                        "INSERT INTO todos (content, status) VALUES (?1, ?2)",
+                        params![todo_content, status],
+                    )?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -290,7 +390,54 @@ impl UnifiedEngine {
             )",
             [],
         )?;
-        // TODO: Implement diff stats loading
+
+        if let Ok(repo) = git2::Repository::open(&self.git_repo_path) {
+            let mut revwalk = repo.revwalk().map_err(|e| Error::Vcsql(e.to_string()))?;
+            revwalk.push_head().ok();
+
+            for oid in revwalk.filter_map(|r| r.ok()) {
+                let Ok(commit) = repo.find_commit(oid) else {
+                    continue;
+                };
+
+                let commit_tree = match commit.tree() {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+
+                let parent_tree = if commit.parent_count() > 0 {
+                    commit.parent(0).ok().and_then(|p| p.tree().ok())
+                } else {
+                    None
+                };
+
+                let diff = match repo.diff_tree_to_tree(
+                    parent_tree.as_ref(),
+                    Some(&commit_tree),
+                    None,
+                ) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+
+                let stats = match diff.stats() {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+
+                let commit_id = commit.id().to_string();
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO diffs VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        commit_id,
+                        stats.files_changed() as i64,
+                        stats.insertions() as i64,
+                        stats.deletions() as i64,
+                    ],
+                )?;
+            }
+        }
+
         Ok(())
     }
 
@@ -299,12 +446,84 @@ impl UnifiedEngine {
             "CREATE TABLE IF NOT EXISTS diff_files (
                 commit_id TEXT,
                 path TEXT,
+                status TEXT,
                 insertions INTEGER,
                 deletions INTEGER
             )",
             [],
         )?;
-        // TODO: Implement per-file diff loading
+
+        if let Ok(repo) = git2::Repository::open(&self.git_repo_path) {
+            let mut revwalk = repo.revwalk().map_err(|e| Error::Vcsql(e.to_string()))?;
+            revwalk.push_head().ok();
+
+            for oid in revwalk.filter_map(|r| r.ok()) {
+                let Ok(commit) = repo.find_commit(oid) else {
+                    continue;
+                };
+
+                let commit_tree = match commit.tree() {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+
+                let parent_tree = if commit.parent_count() > 0 {
+                    commit.parent(0).ok().and_then(|p| p.tree().ok())
+                } else {
+                    None
+                };
+
+                let diff = match repo.diff_tree_to_tree(
+                    parent_tree.as_ref(),
+                    Some(&commit_tree),
+                    None,
+                ) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+
+                let commit_id = commit.id().to_string();
+
+                for delta_idx in 0..diff.deltas().len() {
+                    let delta = diff.deltas().nth(delta_idx).unwrap();
+
+                    let path = delta
+                        .new_file()
+                        .path()
+                        .or_else(|| delta.old_file().path())
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    let status = match delta.status() {
+                        git2::Delta::Added => "A",
+                        git2::Delta::Deleted => "D",
+                        git2::Delta::Modified => "M",
+                        git2::Delta::Renamed => "R",
+                        git2::Delta::Copied => "C",
+                        _ => "?",
+                    };
+
+                    // Get per-file line stats from Patch
+                    let (insertions, deletions) =
+                        if let Ok(patch) = git2::Patch::from_diff(&diff, delta_idx) {
+                            if let Some(ref p) = patch {
+                                let (_, adds, dels) = p.line_stats().unwrap_or((0, 0, 0));
+                                (adds as i64, dels as i64)
+                            } else {
+                                (0i64, 0i64)
+                            }
+                        } else {
+                            (0i64, 0i64)
+                        };
+
+                    self.conn.execute(
+                        "INSERT INTO diff_files VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![commit_id, path, status, insertions, deletions],
+                    )?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -423,8 +642,10 @@ fn query_mentions_table(query_upper: &str, table_name: &str) -> bool {
         .any(|token| token == table_upper)
 }
 
-/// Detect which tables are needed from a SQL query
-pub fn detect_tables(query: &str) -> (Vec<String>, Vec<String>) {
+/// Detect which tables are needed from a SQL query.
+///
+/// Returns a 3-tuple: (claude_tables, git_tables, code_tables).
+pub fn detect_tables(query: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
     let query_upper = query.to_uppercase();
 
     let claude_tables = [
@@ -454,6 +675,13 @@ pub fn detect_tables(query: &str) -> (Vec<String>, Vec<String>) {
         "hooks",
         "notes",
     ];
+    let code_tables = [
+        "source_files",
+        "source_lines",
+        "symbols",
+        "imports",
+        "ast_nodes",
+    ];
 
     let needed_claude: Vec<String> = claude_tables
         .iter()
@@ -467,7 +695,13 @@ pub fn detect_tables(query: &str) -> (Vec<String>, Vec<String>) {
         .map(|s| s.to_string())
         .collect();
 
-    (needed_claude, needed_git)
+    let needed_code: Vec<String> = code_tables
+        .iter()
+        .filter(|t| query_mentions_table(&query_upper, t))
+        .map(|s| s.to_string())
+        .collect();
+
+    (needed_claude, needed_git, needed_code)
 }
 
 #[cfg(test)]
@@ -476,7 +710,7 @@ mod tests {
 
     #[test]
     fn detect_tables_handles_jhistory_without_history_false_positive() {
-        let (claude, _) = detect_tables("SELECT session_id, text FROM jhistory LIMIT 5");
+        let (claude, _, _) = detect_tables("SELECT session_id, text FROM jhistory LIMIT 5");
 
         assert!(claude.contains(&"jhistory".to_string()));
         assert!(!claude.contains(&"history".to_string()));
@@ -484,10 +718,20 @@ mod tests {
 
     #[test]
     fn detect_tables_handles_codex_history_without_history_false_positive() {
-        let (claude, _) = detect_tables("SELECT session_id, text FROM codex_history LIMIT 5");
+        let (claude, _, _) = detect_tables("SELECT session_id, text FROM codex_history LIMIT 5");
 
         assert!(claude.contains(&"codex_history".to_string()));
         assert!(!claude.contains(&"history".to_string()));
+    }
+
+    #[test]
+    fn detect_tables_finds_code_tables() {
+        let (_, _, code) =
+            detect_tables("SELECT * FROM source_files JOIN symbols ON source_files.path = symbols.file_path");
+
+        assert!(code.contains(&"source_files".to_string()));
+        assert!(code.contains(&"symbols".to_string()));
+        assert!(!code.contains(&"source_lines".to_string()));
     }
 
     #[test]

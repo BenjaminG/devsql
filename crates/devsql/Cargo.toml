@@ -11,8 +11,8 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 # Workspace crates
-ccql = { path = "../ccql", version = "0.2.0" }
-vcsql = { path = "../vcsql", version = "0.2.0" }
+ccql = { path = "../ccql", version = "0.2.1" }
+vcsql = { path = "../vcsql", version = "0.2.1" }
 
 # SQL engine - SQLite for unified queries
 rusqlite.workspace = true
@@ -39,6 +39,29 @@ tokio.workspace = true
 
 # Utilities
 dirs = "5.0"
+walkdir.workspace = true
+ignore.workspace = true
+regex.workspace = true
+
+# Tree-sitter (optional, for AST analysis)
+tree-sitter = { workspace = true, optional = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+tree-sitter-javascript = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-go = { workspace = true, optional = true }
+streaming-iterator = { workspace = true, optional = true }
+
+[features]
+tree-sitter-ast = [
+    "dep:tree-sitter",
+    "dep:tree-sitter-rust",
+    "dep:tree-sitter-typescript",
+    "dep:tree-sitter-javascript",
+    "dep:tree-sitter-python",
+    "dep:tree-sitter-go",
+    "dep:streaming-iterator",
+]
 
 [[bin]]
 name = "devsql"

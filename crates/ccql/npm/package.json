@@ -1,6 +1,6 @@
 {
   "name": "ccql",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "description": "SQL query engine for Claude Code and Codex CLI data",
   "author": "Doug Lance",
   "license": "MIT",

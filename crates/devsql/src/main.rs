@@ -103,9 +103,10 @@ impl CommandHandler for SqlHandler {
             }
         };
 
-        let (claude_tables, git_tables) = detect_tables(&query);
+        let (claude_tables, git_tables, code_tables) = detect_tables(&query);
         let claude_refs: Vec<&str> = claude_tables.iter().map(|s| s.as_str()).collect();
         let git_refs: Vec<&str> = git_tables.iter().map(|s| s.as_str()).collect();
+        let code_refs: Vec<&str> = code_tables.iter().map(|s| s.as_str()).collect();
 
         if let Err(e) = engine.load_claude_tables(&claude_refs) {
             return CommandResult::Error {
@@ -125,20 +126,14 @@ impl CommandHandler for SqlHandler {
                 cta: None,
             };
         }
-
-        #[cfg(feature = "tree-sitter-ast")]
-        {
-            let code_tables = detect_tables(&query).2;
-            let code_refs: Vec<&str> = code_tables.iter().map(|s| s.as_str()).collect();
-            if let Err(e) = engine.load_code_tables(&code_refs) {
-                return CommandResult::Error {
-                    code: "LOAD_ERROR".to_string(),
-                    message: format!("Failed to load code tables: {e}"),
-                    retryable: false,
-                    exit_code: Some(1),
-                    cta: None,
-                };
-            }
+        if let Err(e) = engine.load_code_tables(&code_refs) {
+            return CommandResult::Error {
+                code: "LOAD_ERROR".to_string(),
+                message: format!("Failed to load code tables: {e}"),
+                retryable: false,
+                exit_code: Some(1),
+                cta: None,
+            };
         }
 
         match engine.query(&query) {
@@ -168,7 +163,7 @@ fn build_cli() -> Cli {
              Join Claude/Codex conversations with Git commits to find your most productive\n\
              prompts, identify struggle sessions, and learn what actually works for you.",
         )
-        .version("0.1.2")
+        .version(env!("CARGO_PKG_VERSION"))
         .format(Format::Table)
         .root(
             CommandDef::build("devsql", SqlHandler)
@@ -206,6 +201,11 @@ fn build_cli() -> Cli {
                 )
                 .done(),
         )
+        .command("diff", devsql::tools::diff::build())
+        .command("search", devsql::tools::search::build())
+        .command("context", devsql::tools::context::build())
+        .command("history", devsql::tools::history::build())
+        .command("impact", devsql::tools::impact::build())
 }
 
 #[tokio::main]

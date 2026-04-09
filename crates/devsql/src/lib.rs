@@ -6,6 +6,8 @@
 
 pub mod engine;
 pub mod error;
+pub mod providers;
+pub mod tools;
 
 pub use engine::UnifiedEngine;
 pub use error::Error;

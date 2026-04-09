@@ -47,7 +47,7 @@ WRITE MODE: --dry-run to preview, --write to execute (auto-backup)"#;
 #[derive(Parser)]
 #[command(name = "ccql")]
 #[command(author = "Claude Code Query")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Query Claude Code and Codex CLI data with SQL", long_about = LONG_ABOUT)]
 #[command(after_long_help = AFTER_LONG_HELP)]
 struct Cli {

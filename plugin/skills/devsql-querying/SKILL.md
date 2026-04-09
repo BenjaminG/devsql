@@ -1,11 +1,11 @@
 ---
 name: devsql-querying
-description: Query and analyze Claude Code + Codex CLI history joined with Git data using SQL. Use when user asks about conversation history, productivity patterns, commit correlation, session analytics, or wants SQL-based history exploration.
+description: Query and analyze Claude Code + Codex CLI history joined with Git data and source code using SQL. Use when user asks about conversation history, productivity patterns, commit correlation, session analytics, codebase analysis, symbol search, file context, or impact analysis.
 ---
 
 # DevSQL Querying Skill
 
-Query Claude Code and Codex CLI history joined with Git commits to analyze productivity patterns.
+Query Claude Code and Codex CLI history joined with Git commits and source code to analyze productivity patterns and understand codebases.
 
 ## When to Use
 
@@ -14,6 +14,10 @@ Query Claude Code and Codex CLI history joined with Git commits to analyze produ
 - User asks "Which prompts led to the most commits?"
 - User wants productivity analytics or session insights
 - User asks about correlating Claude/Codex usage with Git history
+- User wants to search for symbols, functions, or classes in the codebase
+- User asks "What's in this file?" or needs file context
+- User wants to understand what changed between commits
+- User asks about imports, dependencies, or impact of a file
 
 ## Prerequisites
 
@@ -21,6 +25,20 @@ Ensure devsql is installed:
 ```bash
 brew install douglance/tap/devsql
 ```
+
+## Agent Tool Commands
+
+For structured queries, prefer these subcommands (they return JSON):
+
+| Command | Use When |
+|---------|----------|
+| `devsql search "<query>"` | Finding symbols by name (functions, classes, structs). Supports `--kind` filter and `--limit`. |
+| `devsql context <file>` | Getting file metadata + all symbols defined in a file. |
+| `devsql history <file>` | Showing Git commit history for a specific file with diff stats. |
+| `devsql diff <base> <head>` | Comparing two Git refs with file-level and symbol-level change analysis. |
+| `devsql impact <file>` | Analyzing a file's exports and finding potential dependents via imports. |
+
+All commands accept `--repo` / `-r` and `--data-dir` / `-d` options.
 
 ## Available Tables
 
@@ -30,22 +48,39 @@ brew install douglance/tap/devsql
 | `history` | timestamp, display (prompt text), project, pastedContents |
 | `jhistory` | session_id, ts, text, display, timestamp |
 | `codex_history` | Alias of `jhistory` |
-| `transcripts` | Full conversation data including tool_use, tool_name |
-| `todos` | Todo items tracked in sessions |
+| `transcripts` | type, content, tool_name, session_id |
+| `todos` | content, status |
 
 ### Git Tables
 | Table | Columns |
 |-------|---------|
 | `commits` | id, message, summary, author_name, authored_at, short_id |
 | `branches` | name, is_head, commit_id |
-| `diffs` | Diff content per commit |
-| `blame` | Line-by-line attribution |
+| `diffs` | commit_id, files_changed, insertions, deletions |
+| `diff_files` | commit_id, path, status (A/D/M/R/C), insertions, deletions |
+
+### Code Tables (Source Analysis)
+| Table | Columns |
+|-------|---------|
+| `source_files` | path, name, extension, directory, size_bytes, line_count, modified_at, language |
+| `source_lines` | file_path, line_number, content, is_blank |
+| `symbols` | file_path, name, kind, line_start, line_end, signature, visibility, parameters, return_type, language |
+| `imports`\* | file_path, line_number, module, name, alias, kind, is_default, is_wildcard |
+| `ast_nodes`\* | (requires tree-sitter-ast feature) |
+
+\* Full extraction requires the `tree-sitter-ast` build feature. Without it, `symbols` uses regex-based extraction and `imports`/`ast_nodes` are empty.
+
+**Supported languages for symbol extraction:** Rust, TypeScript, JavaScript, Python, Go.
+
+**Symbol kinds:** function, struct, enum, trait, type, const, static, mod, macro, class, interface (varies by language).
 
 ## Approach
 
 1. Understand what the user wants to analyze
-2. Compose a SQL query joining history and Git data as needed
-3. Execute with: `devsql "<query>"`
+2. Choose the right tool:
+   - For structured queries about symbols/files/history → use a subcommand
+   - For cross-table analytics or custom joins → compose a SQL query
+3. Execute with: `devsql "<query>"` or `devsql <subcommand> <args>`
 4. Present results with insights
 
 Note: history.timestamp is in milliseconds. Use `datetime(timestamp/1000, 'unixepoch')` to convert.
@@ -56,12 +91,6 @@ Note: history.timestamp is in milliseconds. Use `datetime(timestamp/1000, 'unixe
 -- Recent prompts
 SELECT display as prompt, project
 FROM history ORDER BY timestamp DESC LIMIT 10;
-
--- Recent Codex prompts
-SELECT datetime(timestamp/1000, 'unixepoch') as time, display
-FROM jhistory
-ORDER BY timestamp DESC
-LIMIT 10;
 
 -- Prompts this week
 SELECT COUNT(*) as prompts
@@ -94,6 +123,35 @@ FROM transcripts
 WHERE type = 'tool_use'
 GROUP BY tool_name
 ORDER BY uses DESC;
+
+-- Find all public functions
+SELECT name, file_path, line_start, signature
+FROM symbols
+WHERE kind = 'function' AND visibility = 'pub'
+ORDER BY file_path, line_start;
+
+-- Codebase overview by language
+SELECT language, COUNT(*) as files, SUM(line_count) as total_lines
+FROM source_files
+GROUP BY language
+ORDER BY total_lines DESC;
+
+-- Files with the most symbols
+SELECT s.file_path, f.language, COUNT(*) as symbol_count
+FROM symbols s
+JOIN source_files f ON s.file_path = f.path
+GROUP BY s.file_path
+ORDER BY symbol_count DESC
+LIMIT 10;
+
+-- Most changed files correlated with symbol count
+SELECT df.path, COUNT(DISTINCT df.commit_id) as commits,
+  SUM(df.insertions) as total_adds,
+  (SELECT COUNT(*) FROM symbols s WHERE s.file_path = df.path) as symbols
+FROM diff_files df
+GROUP BY df.path
+ORDER BY commits DESC
+LIMIT 10;
 ```
 
 ## Output Formats
