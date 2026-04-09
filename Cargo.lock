@@ -2033,7 +2033,8 @@ dependencies = [
 [[package]]
 name = "incurs"
 version = "0.1.0"
-source = "git+https://github.com/douglance/incurs#3f47a835c09f5db7755fefbdf6d0bb96ac53a710"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e518f0f195a87bf7ec6739fe34e75996c23cfd14d1daca3b857a9be770146af"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2052,7 +2053,8 @@ dependencies = [
 [[package]]
 name = "incurs-macros"
 version = "0.1.0"
-source = "git+https://github.com/douglance/incurs#3f47a835c09f5db7755fefbdf6d0bb96ac53a710"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "623331cc990b8685a8cbb4f7f6d3a50a347dd897d0f5ed4c9701d58b4eaaf074"
 dependencies = [
  "proc-macro2",
  "quote",
