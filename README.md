@@ -1,128 +1,47 @@
 # DevSQL
 
-**Query your AI coding history and codebase to become a better prompter.**
+Unified SQL interface across AI coding history, Git repositories, and source code.
 
-DevSQL lets you analyze your Claude Code and Codex CLI conversations alongside your Git commits and source code. Find your most productive prompts, identify patterns in successful coding sessions, search symbols across your codebase, and understand the impact of changes.
+DevSQL loads data from Claude Code, Codex CLI, Git, and your source tree into an in-memory SQLite database so you can join, filter, and aggregate across all of them with standard SQL.
 
-## Why?
+## Overview
 
-Your `~/.claude/` and `~/.codex/` folders contain a goldmine of data: every prompt you've written, every tool used, every conversation that led to shipped code. DevSQL turns that—plus your Git history and source code—into queryable insights.
-
-**Ask questions like:**
-- "Which of my prompts led to the most commits?"
-- "What patterns do my successful coding sessions have?"
-- "When do I struggle most—and what prompts help me recover?"
-- "Which tools does Claude use most when I'm productive?"
-- "What symbols are defined in this file, and who imports them?"
-- "What changed between these two commits at the symbol level?"
-
-## What You Can Do
-
-### Find Your Most Productive Prompts
-```bash
-devsql "SELECT h.display as prompt, COUNT(c.id) as commits_after
-FROM history h
-LEFT JOIN commits c ON DATE(datetime(h.timestamp/1000, 'unixepoch')) = DATE(c.authored_at)
-GROUP BY h.display
-HAVING commits_after > 0
-ORDER BY commits_after DESC
-LIMIT 20"
+```
+~/.claude/    ─┐
+~/.codex/     ─┤
+.git/         ─┼──▶  SQLite (in-memory)  ──▶  SQL queries / JSON / CSV
+src/**/*      ─┘
 ```
 
-### Identify Struggle Sessions
-```bash
-devsql "SELECT
-  DATE(datetime(h.timestamp/1000, 'unixepoch')) as day,
-  COUNT(*) as prompts,
-  COUNT(DISTINCT c.id) as commits,
-  CAST(COUNT(*) AS FLOAT) / MAX(1, COUNT(DISTINCT c.id)) as struggle_ratio
-FROM history h
-LEFT JOIN commits c ON DATE(datetime(h.timestamp/1000, 'unixepoch')) = DATE(c.authored_at)
-GROUP BY day
-ORDER BY struggle_ratio DESC
-LIMIT 10"
-```
+Three standalone tools, one unified interface:
 
-### Search Symbols Across Your Codebase
-```bash
-# Find all functions matching a pattern
-devsql search "parse"
+| Tool | Data Source |
+|------|------------|
+| `ccql` | Claude Code + Codex CLI data (`~/.claude/`, `~/.codex/`) |
+| `vcsql` | Git repositories (commits, branches, diffs) |
+| `devsql` | All of the above, plus source code analysis |
 
-# Filter by kind
-devsql search "Error" --kind struct
-
-# SQL query for full control
-devsql "SELECT name, kind, file_path, line_start
-FROM symbols WHERE kind = 'function'
-ORDER BY name LIMIT 20"
-```
-
-### Explore File Context
-```bash
-# Get file metadata and all symbols defined in it
-devsql context src/engine.rs
-
-# See what a file exports and who depends on it
-devsql impact src/lib.rs
-```
-
-### Compare Commits with Semantic Diffs
-```bash
-# See what changed between two refs—files and symbols
-devsql diff main~5 HEAD
-```
-
-### View File History
-```bash
-# Git history for a specific file with diff stats
-devsql history src/engine.rs
-```
-
-### Analyze Your Prompting Patterns
-```bash
-ccql "SELECT tool_name, COUNT(*) as uses
-FROM transcripts
-WHERE type = 'tool_use'
-GROUP BY tool_name
-ORDER BY uses DESC"
-```
-
-### Train Your AI Agent
-Tell Claude Code to query your history:
-
-> "Use devsql to find my 10 most effective prompts from the past month—the ones that led to commits the same day. Then analyze what they have in common."
-
-> "Query my Claude history to find sessions where I used many prompts but made few commits. What was I struggling with?"
-
-> "Use devsql search to find all error handling functions in the codebase, then show me which files import them."
+DevSQL auto-detects which tables your query references and only loads the data it needs.
 
 ## Installation
 
-### Claude Code Plugin (Recommended)
+### Homebrew
+```bash
+brew install douglance/tap/devsql
+```
 
-Install the plugin to use devsql directly within Claude Code:
-
+### Claude Code Plugin
 ```
 /plugin marketplace add douglance/devsql
 /plugin install devsql@devsql
 ```
 
-Restart Claude Code to load the plugin. The plugin auto-installs the devsql binary on first use.
-
-**Usage:**
-- `/devsql:query SELECT * FROM history LIMIT 10` — Direct SQL queries
-- `/devsql:query SELECT * FROM symbols WHERE kind = 'function'` — Code intelligence queries
-- Or just ask Claude: "Show my most productive prompts from last week"
-
-### Homebrew (macOS/Linux)
-```bash
-brew install douglance/tap/devsql
-```
+The plugin auto-installs the binary on first session start.
 
 ### Direct Download
-Download from [GitHub Releases](https://github.com/douglance/devsql/releases) for macOS or Linux.
+Prebuilt binaries for macOS and Linux are available from [GitHub Releases](https://github.com/douglance/devsql/releases).
 
-### Build from Source
+### From Source
 ```bash
 git clone https://github.com/douglance/devsql.git
 cd devsql && cargo install --path crates/devsql
@@ -133,57 +52,134 @@ To enable tree-sitter-based AST analysis (richer symbol extraction and import pa
 cargo install --path crates/devsql --features tree-sitter-ast
 ```
 
-## The Three Tools
+## Usage
 
-| Tool | What It Queries |
-|------|-----------------|
-| `ccql` | Your Claude Code + Codex CLI data (`~/.claude/`, `~/.codex/`) |
-| `vcsql` | Your Git repositories |
-| `devsql` | All of the above—join conversations, commits, and code |
+### SQL Queries
 
-## Commands
-
-### SQL Query (default)
 ```bash
-devsql "<SQL>"              # Query any table with raw SQL
-devsql -f json "<SQL>"      # Output as JSON
-devsql -f csv "<SQL>"       # Output as CSV
+devsql "<SQL>"                # Default table output
+devsql -f json "<SQL>"        # JSON output
+devsql -f csv "<SQL>"         # CSV output
 ```
 
-### Agent Tool Commands
+### Commands
 
-These structured commands return JSON, designed for use by AI agents:
+Structured commands that return JSON, designed for use by AI agents and scripts:
 
 | Command | Description |
 |---------|-------------|
 | `devsql search <query>` | Find symbols by name across the codebase |
-| `devsql context <file>` | Get file metadata and symbols for a given path |
-| `devsql history <file>` | Show Git commit history for a specific file |
-| `devsql diff <base> <head>` | Compare two Git refs with file-level and symbol-level stats |
-| `devsql impact <file>` | Analyze a file's exports and find potential dependents |
+| `devsql context <file>` | File metadata and symbols for a given path |
+| `devsql history <file>` | Git commit history for a specific file |
+| `devsql diff <base> <head>` | Compare two Git refs with file and symbol-level stats |
+| `devsql impact <file>` | Analyze exports and find potential dependents |
 
-Options common to all commands: `--repo` / `-r` (repo path, default `.`), `--data-dir` / `-d` (Claude data dir, default `~/.claude`).
+Common options: `--repo` / `-r` (default `.`), `--data-dir` / `-d` (default `~/.claude`).
 
-## Available Tables
+## Tables
 
-**Claude Code**: `history` (your prompts), `transcripts` (full conversations), `todos` (tasks)
+### AI History
 
-**Codex CLI**: `jhistory` (prompt history from `history.jsonl`), `codex_history` (alias)
+| Table | Source | Description |
+|-------|--------|-------------|
+| `history` | `~/.claude/history.jsonl` | Claude Code prompts (timestamp, display, project) |
+| `transcripts` | `~/.claude/transcripts/*.jsonl` | Full conversations (type, content, tool_name, session_id) |
+| `todos` | `~/.claude/todos/*.json` | Task items (content, status) |
+| `jhistory` | `~/.codex/history.jsonl` | Codex CLI prompts (session_id, text, display, timestamp) |
+| `codex_history` | — | Alias for `jhistory` |
 
-**Git**: `commits`, `branches`, `diffs` (commit-level stats), `diff_files` (per-file stats with status)
+### Git
 
-**Code** (source analysis): `source_files` (file inventory), `source_lines` (line-level content), `symbols` (functions, classes, structs, etc.), `imports`\*, `ast_nodes`\*
+| Table | Description |
+|-------|-------------|
+| `commits` | id, message, summary, author_name, authored_at, short_id |
+| `branches` | name, is_head, commit_id |
+| `diffs` | Commit-level stats: commit_id, files_changed, insertions, deletions |
+| `diff_files` | Per-file stats: commit_id, path, status (A/D/M/R/C), insertions, deletions |
 
-\* Requires the `tree-sitter-ast` feature for full extraction. Without it, `symbols` uses regex-based extraction (Rust, TypeScript, JavaScript, Python, Go) and `imports`/`ast_nodes` are empty.
+### Source Code
 
-### Code Table Schemas
+| Table | Description |
+|-------|-------------|
+| `source_files` | File inventory: path, name, extension, directory, size_bytes, line_count, modified_at, language |
+| `source_lines` | Line content: file_path, line_number, content, is_blank |
+| `symbols` | Definitions: file_path, name, kind, line_start, line_end, signature, visibility, parameters, return_type, language |
+| `imports`\* | Import statements: file_path, line_number, module, name, alias, kind, is_default, is_wildcard |
+| `ast_nodes`\* | Raw AST nodes |
 
-| Table | Key Columns |
-|-------|------------|
-| `source_files` | `path`, `name`, `extension`, `directory`, `size_bytes`, `line_count`, `modified_at`, `language` |
-| `source_lines` | `file_path`, `line_number`, `content`, `is_blank` |
-| `symbols` | `file_path`, `name`, `kind`, `line_start`, `line_end`, `signature`, `visibility`, `parameters`, `return_type`, `language` |
-| `imports` | `file_path`, `line_number`, `module`, `name`, `alias`, `kind`, `is_default`, `is_wildcard` |
+\* Requires the `tree-sitter-ast` feature for full extraction. Without it, `symbols` falls back to regex-based extraction (Rust, TypeScript, JavaScript, Python, Go) and `imports`/`ast_nodes` are empty.
+
+## Examples
+
+### Join prompts with commits
+```sql
+SELECT
+  date(c.authored_at) as day,
+  COUNT(DISTINCT h.timestamp) as prompts,
+  COUNT(DISTINCT c.id) as commits
+FROM commits c
+LEFT JOIN history h
+  ON date(c.authored_at) = date(datetime(h.timestamp/1000, 'unixepoch'))
+GROUP BY day
+ORDER BY day DESC
+LIMIT 14;
+```
+
+### Find productive prompts
+```sql
+SELECT h.display as prompt, COUNT(c.id) as commits_after
+FROM history h
+JOIN commits c ON date(datetime(h.timestamp/1000, 'unixepoch')) = date(c.authored_at)
+GROUP BY h.display
+HAVING commits_after > 0
+ORDER BY commits_after DESC
+LIMIT 20;
+```
+
+### Codebase overview by language
+```sql
+SELECT language, COUNT(*) as files, SUM(line_count) as total_lines
+FROM source_files
+GROUP BY language
+ORDER BY total_lines DESC;
+```
+
+### Hottest files (most commits + most symbols)
+```sql
+SELECT df.path,
+  COUNT(DISTINCT df.commit_id) as commits,
+  SUM(df.insertions) as lines_added,
+  (SELECT COUNT(*) FROM symbols s WHERE s.file_path = df.path) as symbols
+FROM diff_files df
+GROUP BY df.path
+ORDER BY commits DESC
+LIMIT 10;
+```
+
+### Search symbols
+```bash
+devsql search "parse"
+devsql search "Error" --kind struct
+```
+
+### Semantic diff between refs
+```bash
+devsql diff main~5 HEAD
+```
+
+### File context and impact
+```bash
+devsql context src/engine.rs
+devsql impact src/lib.rs
+devsql history src/engine.rs
+```
+
+## Notes
+
+- `history.timestamp` is in epoch milliseconds. Use `datetime(timestamp/1000, 'unixepoch')` to convert.
+- A custom `DATE()` function normalizes epoch ms, epoch seconds, and ISO strings.
+- Tables are loaded lazily — only those referenced in your query are populated.
+- The `symbols` table extracts functions, structs, enums, traits, types, classes, interfaces, and more depending on language.
 
 ## License
 
