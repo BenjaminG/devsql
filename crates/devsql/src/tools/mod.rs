@@ -13,7 +13,7 @@ pub mod semantic_diff;
 use std::path::PathBuf;
 
 use crate::UnifiedEngine;
-use incur::output::CommandResult;
+use incurs::output::CommandResult;
 
 /// Create an engine from common options (repo, data_dir).
 ///

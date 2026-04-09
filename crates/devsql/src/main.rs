@@ -1,39 +1,39 @@
 //! DevSQL CLI - Unified SQL queries across Claude/Codex + Git data
 //!
-//! Built on the incur framework, giving devsql all built-in CLI features:
+//! Built on the incurs framework, giving devsql all built-in CLI features:
 //! --help, --version, --llms, --llms-full, --mcp, --json, --csv, --table,
 //! --format, --filter-output, --verbose, shell completions, and skills.
 
 use std::path::PathBuf;
 
 use devsql::{engine::detect_tables, UnifiedEngine};
-use incur::cli::Cli;
-use incur::command::{CommandContext, CommandDef, CommandHandler, Example};
-use incur::output::{CommandResult, Format};
+use incurs::cli::Cli;
+use incurs::command::{CommandContext, CommandDef, CommandHandler, Example};
+use incurs::output::{CommandResult, Format};
 use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // Schemas (derive macros replace manual FieldMeta construction)
 // ---------------------------------------------------------------------------
 
-#[derive(incur::Args, serde::Deserialize)]
+#[derive(incurs::Args, serde::Deserialize)]
 #[allow(dead_code)]
 struct QueryArgs {
     /// SQL query to execute
     query: String,
 }
 
-#[derive(incur::Options, serde::Deserialize)]
+#[derive(incurs::Options, serde::Deserialize)]
 #[allow(dead_code)]
 struct QueryOptions {
     /// Git repository path
-    #[incur(alias = "r", default = ".")]
+    #[incurs(alias = "r", default = ".")]
     repo: String,
     /// Claude data directory (defaults to ~/.claude)
-    #[incur(alias = "d")]
+    #[incurs(alias = "d")]
     data_dir: Option<String>,
     /// Omit header row in table/csv output
-    #[incur(alias = "H")]
+    #[incurs(alias = "H")]
     no_header: bool,
 }
 

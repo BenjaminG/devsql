@@ -1,7 +1,7 @@
 //! `devsql context` -- retrieve file metadata and symbols for a given path.
 
-use incur::command::{CommandContext, CommandDef, CommandHandler, Example};
-use incur::output::CommandResult;
+use incurs::command::{CommandContext, CommandDef, CommandHandler, Example};
+use incurs::output::CommandResult;
 use serde_json::{json, Value};
 
 use super::engine_from_options;
@@ -10,24 +10,24 @@ use super::engine_from_options;
 // Schema
 // ---------------------------------------------------------------------------
 
-#[derive(incur::Args, serde::Deserialize)]
+#[derive(incurs::Args, serde::Deserialize)]
 #[allow(dead_code)]
 struct ContextArgs {
     /// File path (or partial path) to get context for
     file: String,
 }
 
-#[derive(incur::Options, serde::Deserialize)]
+#[derive(incurs::Options, serde::Deserialize)]
 #[allow(dead_code)]
 struct ContextOptions {
     /// Git repository path
-    #[incur(alias = "r", default = ".")]
+    #[incurs(alias = "r", default = ".")]
     repo: String,
     /// Claude data directory (defaults to ~/.claude)
-    #[incur(alias = "d")]
+    #[incurs(alias = "d")]
     data_dir: Option<String>,
     /// Include symbol details
-    #[incur(alias = "s")]
+    #[incurs(alias = "s")]
     symbols: bool,
 }
 

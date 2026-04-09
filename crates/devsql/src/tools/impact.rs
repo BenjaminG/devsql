@@ -1,7 +1,7 @@
 //! `devsql impact` -- analyze a file's exported symbols and potential dependents.
 
-use incur::command::{CommandContext, CommandDef, CommandHandler, Example};
-use incur::output::CommandResult;
+use incurs::command::{CommandContext, CommandDef, CommandHandler, Example};
+use incurs::output::CommandResult;
 use serde_json::{json, Value};
 
 use super::engine_from_options;
@@ -10,24 +10,24 @@ use super::engine_from_options;
 // Schema
 // ---------------------------------------------------------------------------
 
-#[derive(incur::Args, serde::Deserialize)]
+#[derive(incurs::Args, serde::Deserialize)]
 #[allow(dead_code)]
 struct ImpactArgs {
     /// File path (or partial path) to analyze
     file: String,
 }
 
-#[derive(incur::Options, serde::Deserialize)]
+#[derive(incurs::Options, serde::Deserialize)]
 #[allow(dead_code)]
 struct ImpactOptions {
     /// Git repository path
-    #[incur(alias = "r", default = ".")]
+    #[incurs(alias = "r", default = ".")]
     repo: String,
     /// Claude data directory (defaults to ~/.claude)
-    #[incur(alias = "d")]
+    #[incurs(alias = "d")]
     data_dir: Option<String>,
     /// Depth of dependency analysis (reserved for future use)
-    #[incur(default = "1")]
+    #[incurs(default = "1")]
     depth: i64,
 }
 

@@ -1,8 +1,8 @@
 //! `devsql diff` -- compare two Git refs and return file-level and symbol-level stats.
 
 use git2::Delta;
-use incur::command::{CommandContext, CommandDef, CommandHandler, Example};
-use incur::output::CommandResult;
+use incurs::command::{CommandContext, CommandDef, CommandHandler, Example};
+use incurs::output::CommandResult;
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -13,7 +13,7 @@ use crate::providers::detect_language;
 // Schema
 // ---------------------------------------------------------------------------
 
-#[derive(incur::Args, serde::Deserialize)]
+#[derive(incurs::Args, serde::Deserialize)]
 #[allow(dead_code)]
 struct DiffArgs {
     /// Base ref (commit, branch, tag)
@@ -22,14 +22,14 @@ struct DiffArgs {
     head: String,
 }
 
-#[derive(incur::Options, serde::Deserialize)]
+#[derive(incurs::Options, serde::Deserialize)]
 #[allow(dead_code)]
 struct DiffOptions {
     /// Git repository path
-    #[incur(alias = "r", default = ".")]
+    #[incurs(alias = "r", default = ".")]
     repo: String,
     /// Maximum number of files to return
-    #[incur(alias = "n", default = "100")]
+    #[incurs(alias = "n", default = "100")]
     limit: i64,
 }
 

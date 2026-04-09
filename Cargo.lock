@@ -702,7 +702,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -976,7 +976,7 @@ dependencies = [
  "dirs 5.0.1",
  "git2",
  "ignore",
- "incur",
+ "incurs",
  "regex",
  "rusqlite",
  "serde",
@@ -2031,15 +2031,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "incur"
+name = "incurs"
 version = "0.1.0"
-source = "git+https://github.com/douglance/incurs#a079ae4f95725a0017520a9b9a316e477ba6d13b"
+source = "git+https://github.com/douglance/incurs#3f47a835c09f5db7755fefbdf6d0bb96ac53a710"
 dependencies = [
  "async-stream",
  "async-trait",
  "dirs 6.0.0",
  "futures",
- "incur-macros",
+ "incurs-macros",
  "schemars",
  "serde",
  "serde_json",
@@ -2050,9 +2050,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "incur-macros"
+name = "incurs-macros"
 version = "0.1.0"
-source = "git+https://github.com/douglance/incurs#a079ae4f95725a0017520a9b9a316e477ba6d13b"
+source = "git+https://github.com/douglance/incurs#3f47a835c09f5db7755fefbdf6d0bb96ac53a710"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3675,7 +3675,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b1fdf65dd6331831494dd616b30351c38e96e45921a27745cf98490458b90bb"
 dependencies = [
- "dirs 6.0.0",
+ "dirs 5.0.1",
 ]
 
 [[package]]
@@ -4700,7 +4700,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 //! `devsql search` -- find symbols by name across the codebase.
 
-use incur::command::{CommandContext, CommandDef, CommandHandler, Example};
-use incur::output::CommandResult;
+use incurs::command::{CommandContext, CommandDef, CommandHandler, Example};
+use incurs::output::CommandResult;
 use serde_json::{json, Value};
 
 use super::engine_from_options;
@@ -10,27 +10,27 @@ use super::engine_from_options;
 // Schema
 // ---------------------------------------------------------------------------
 
-#[derive(incur::Args, serde::Deserialize)]
+#[derive(incurs::Args, serde::Deserialize)]
 #[allow(dead_code)]
 struct SearchArgs {
     /// Symbol name or pattern to search for
     query: String,
 }
 
-#[derive(incur::Options, serde::Deserialize)]
+#[derive(incurs::Options, serde::Deserialize)]
 #[allow(dead_code)]
 struct SearchOptions {
     /// Git repository path
-    #[incur(alias = "r", default = ".")]
+    #[incurs(alias = "r", default = ".")]
     repo: String,
     /// Claude data directory (defaults to ~/.claude)
-    #[incur(alias = "d")]
+    #[incurs(alias = "d")]
     data_dir: Option<String>,
     /// Filter by symbol kind (function, struct, enum, trait, impl, etc.)
-    #[incur(alias = "k")]
+    #[incurs(alias = "k")]
     kind: Option<String>,
     /// Maximum number of results
-    #[incur(alias = "n", default = "50")]
+    #[incurs(alias = "n", default = "50")]
     limit: i64,
 }
 

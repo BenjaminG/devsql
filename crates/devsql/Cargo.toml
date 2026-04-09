@@ -21,7 +21,7 @@ rusqlite.workspace = true
 git2.workspace = true
 
 # CLI framework
-incur = { git = "https://github.com/douglance/incurs", default-features = false, features = ["cli"] }
+incurs = { git = "https://github.com/douglance/incurs", default-features = false, features = ["cli"] }
 async-trait = "0.1"
 
 # Serialization
