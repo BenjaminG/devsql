@@ -11,13 +11,13 @@ use gluesql::core::ast::{ColumnDef, IndexOperator, OrderByExpr};
 use gluesql::core::data::{CustomFunction as StructCustomFunction, Schema};
 use gluesql::core::error::Error as GlueError;
 use gluesql::core::store::{
-    AlterTable, CustomFunction, CustomFunctionMut, DataRow, Index, IndexMut, Metadata, RowIter,
-    Store, StoreMut, Transaction,
+    AlterTable, CustomFunction, CustomFunctionMut, DataRow, Index, IndexMut, Metadata, Planner,
+    RowIter, Store, StoreMut, Transaction,
 };
 use gluesql::prelude::{Key, Result, Value};
 use gluesql_json_storage::JsonStorage;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 
@@ -227,7 +227,7 @@ impl CompositeStorage {
 
 /// Convert a JSON object to a DataRow with metadata columns
 fn json_to_data_row_with_meta(json: &JsonValue, source_file: &str, session_id: &str) -> DataRow {
-    let mut map = HashMap::new();
+    let mut map = BTreeMap::new();
 
     map.insert(
         "_source_file".to_string(),
@@ -254,7 +254,7 @@ fn todo_json_to_data_row(
     workspace_id: &str,
     agent_id: &str,
 ) -> DataRow {
-    let mut map = HashMap::new();
+    let mut map = BTreeMap::new();
 
     map.insert(
         "_source_file".to_string(),
@@ -303,7 +303,7 @@ fn jhistory_json_to_data_row(json: &JsonValue) -> Option<DataRow> {
 
     let timestamp_millis = ts_seconds.saturating_mul(1000);
 
-    let mut map = HashMap::new();
+    let mut map = BTreeMap::new();
     map.insert("display".to_string(), Value::Str(text.clone()));
     map.insert("timestamp".to_string(), Value::I64(timestamp_millis));
     map.insert("session_id".to_string(), Value::Str(session_id.clone()));
@@ -382,7 +382,7 @@ fn json_value_to_glue_value(value: &JsonValue) -> Value {
         JsonValue::String(s) => Value::Str(s.clone()),
         JsonValue::Array(arr) => Value::List(arr.iter().map(json_value_to_glue_value).collect()),
         JsonValue::Object(obj) => {
-            let map: HashMap<String, Value> = obj
+            let map: BTreeMap<String, Value> = obj
                 .iter()
                 .map(|(k, v)| (k.clone(), json_value_to_glue_value(v)))
                 .collect();
@@ -398,7 +398,7 @@ fn rows_to_iter(rows: Vec<(Key, DataRow)>) -> RowIter<'static> {
 }
 
 // Implement the Store trait
-#[async_trait(?Send)]
+#[async_trait]
 impl Store for CompositeStorage {
     async fn fetch_schema(&self, table_name: &str) -> Result<Option<Schema>> {
         match table_name {
@@ -464,7 +464,7 @@ impl Store for CompositeStorage {
 }
 
 // Implement StoreMut (delegate to JsonStorage for non-virtual tables)
-#[async_trait(?Send)]
+#[async_trait]
 impl StoreMut for CompositeStorage {
     async fn insert_schema(&mut self, schema: &Schema) -> Result<()> {
         if self.is_virtual_table(&schema.table_name) {
@@ -518,11 +518,11 @@ impl StoreMut for CompositeStorage {
 }
 
 // Implement Metadata (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl Metadata for CompositeStorage {}
 
 // Implement Index (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl Index for CompositeStorage {
     async fn scan_indexed_data(
         &self,
@@ -543,7 +543,7 @@ impl Index for CompositeStorage {
 }
 
 // Implement IndexMut (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl IndexMut for CompositeStorage {
     async fn create_index(
         &mut self,
@@ -574,7 +574,7 @@ impl IndexMut for CompositeStorage {
 }
 
 // Implement AlterTable (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl AlterTable for CompositeStorage {
     async fn rename_schema(&mut self, table_name: &str, new_table_name: &str) -> Result<()> {
         if self.is_virtual_table(table_name) || self.is_virtual_table(new_table_name) {
@@ -634,7 +634,7 @@ impl AlterTable for CompositeStorage {
 }
 
 // Implement Transaction (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl Transaction for CompositeStorage {
     async fn begin(&mut self, autocommit: bool) -> Result<bool> {
         self.json_storage.begin(autocommit).await
@@ -650,7 +650,7 @@ impl Transaction for CompositeStorage {
 }
 
 // Implement CustomFunction (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl CustomFunction for CompositeStorage {
     async fn fetch_function(&self, func_name: &str) -> Result<Option<&StructCustomFunction>> {
         self.json_storage.fetch_function(func_name).await
@@ -662,7 +662,7 @@ impl CustomFunction for CompositeStorage {
 }
 
 // Implement CustomFunctionMut (delegate to JsonStorage)
-#[async_trait(?Send)]
+#[async_trait]
 impl CustomFunctionMut for CompositeStorage {
     async fn insert_function(&mut self, func: StructCustomFunction) -> Result<()> {
         self.json_storage.insert_function(func).await
@@ -672,6 +672,10 @@ impl CustomFunctionMut for CompositeStorage {
         self.json_storage.delete_function(func_name).await
     }
 }
+
+// Implement Planner (uses default impl which delegates to Store)
+#[async_trait]
+impl Planner for CompositeStorage {}
 
 #[cfg(test)]
 mod tests {
@@ -712,7 +716,7 @@ mod tests {
             "text": "hello codex"
         });
 
-        let Some(DataRow::Map(map)) = jhistory_json_to_data_row(&json) else {
+        let Some(DataRow::Map(ref map)) = jhistory_json_to_data_row(&json) else {
             panic!("expected jhistory row");
         };
 
@@ -732,7 +736,7 @@ mod tests {
             "text": "hello codex"
         });
 
-        let Some(DataRow::Map(map)) = jhistory_json_to_data_row(&json) else {
+        let Some(DataRow::Map(ref map)) = jhistory_json_to_data_row(&json) else {
             panic!("expected jhistory row");
         };
 

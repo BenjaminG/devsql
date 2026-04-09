@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/douglance/devsql"
@@ -15,8 +15,8 @@ repository = "https://github.com/douglance/devsql"
 [workspace.dependencies]
 # SQL engines
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
-gluesql = "0.16"
-gluesql-json-storage = "0.16"
+gluesql = "0.19"
+gluesql-json-storage = "0.19"
 
 # Git
 git2 = "0.19"

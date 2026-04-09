@@ -11,8 +11,8 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 # Workspace crates
-ccql = { path = "../ccql", version = "0.2.1" }
-vcsql = { path = "../vcsql", version = "0.2.1" }
+ccql = { path = "../ccql", version = "0.2.2" }
+vcsql = { path = "../vcsql", version = "0.2.2" }
 
 # SQL engine - SQLite for unified queries
 rusqlite.workspace = true
