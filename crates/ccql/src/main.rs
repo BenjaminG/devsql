@@ -364,7 +364,8 @@ async fn main() -> Result<()> {
 fn print_tables_info(config: &Config) {
     let history_exists = config.history_file().exists();
     let jhistory_exists = config.jhistory_file().exists();
-    let transcripts_exists = config.transcripts_dir().exists();
+    let transcripts_exists =
+        config.projects_dir().exists() || config.transcripts_dir().exists();
     let todos_exists = config.todos_dir().exists();
 
     println!("TABLES");
@@ -401,16 +402,43 @@ fn print_tables_info(config: &Config) {
     println!(
         "{} transcripts                   {}",
         status,
-        config.transcripts_dir().display()
+        config.projects_dir().display()
     );
-    println!("  ├── _source_file   TEXT         Source file (ses_xxx.jsonl)");
-    println!("  ├── _session_id    TEXT         Session ID");
-    println!("  ├── type           TEXT         'user' | 'tool_use' | 'tool_result'");
+    println!("  ├── _source_file   TEXT         Source file name");
+    println!("  ├── _session_id    TEXT         Session ID (parent session for subagents)");
+    println!("  ├── _project       TEXT         Project slug dir (NULL for legacy files)");
+    println!("  ├── _agent_id      TEXT         Subagent file stem (NULL otherwise)");
+    println!("  ├── type           TEXT         'user' | 'assistant' | 'tool_use' | …");
     println!("  ├── timestamp      TEXT         ISO 8601 timestamp");
+    println!("  ├── message        OBJECT       Message incl. usage/cache tokens");
     println!("  ├── content        TEXT         Message text (type='user')");
     println!("  ├── tool_name      TEXT         Tool name (type='tool_*')");
     println!("  ├── tool_input     OBJECT       Tool parameters");
-    println!("  └── tool_output    OBJECT       Tool response (type='tool_result')\n");
+    println!("  ├── tool_output    OBJECT       Tool response (type='tool_result')");
+    println!("  ├── model          TEXT         Model id (assistant rows)");
+    println!("  └── usage_*        INTEGER/TEXT Flattened message.usage token columns\n");
+
+    // sessions
+    let status = if transcripts_exists { "✓" } else { "✗" };
+    println!(
+        "{} sessions                      {}",
+        status,
+        config.projects_dir().display()
+    );
+    println!("  ├── session_id     TEXT         Session ID");
+    println!("  ├── project        TEXT         Project slug dir (NULL for legacy files)");
+    println!("  ├── cwd            TEXT         Working directory (first seen)");
+    println!("  ├── git_branch     TEXT         Git branch (first seen)");
+    println!("  ├── version        TEXT         Claude Code version (last seen)");
+    println!("  ├── title          TEXT         AI-generated session title");
+    println!("  ├── first_timestamp TEXT        Earliest record timestamp");
+    println!("  ├── last_timestamp TEXT         Latest record timestamp");
+    println!("  ├── user_message_count      INTEGER");
+    println!("  ├── assistant_message_count INTEGER");
+    println!("  ├── subagent_count INTEGER      Subagent transcript files");
+    println!("  ├── total_*_tokens INTEGER      Session token sums (input/output/cache)");
+    println!("  ├── pr_url         TEXT         Linked PR URL (if any)");
+    println!("  └── pr_number      INTEGER      Linked PR number (if any)\n");
 
     // todos
     let status = if todos_exists { "✓" } else { "✗" };

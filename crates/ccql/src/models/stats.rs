@@ -22,6 +22,8 @@ pub struct StatsCache {
     pub first_session_date: String,
     #[serde(rename = "longestSession", skip_serializing_if = "Option::is_none")]
     pub longest_session: Option<LongestSession>,
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +72,32 @@ pub struct LongestSession {
     pub message_count: u64,
     #[serde(default)]
     pub timestamp: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stats_cache_keeps_unknown_top_level_fields() {
+        let json = r#"{
+            "version": 1,
+            "lastComputedDate": "2026-06-10",
+            "dailyActivity": [],
+            "totalMessages": 0,
+            "totalSessions": 0,
+            "firstSessionDate": "2026-01-01",
+            "futureUnknownKey": {"a": 1},
+            "anotherNewField": "hello"
+        }"#;
+
+        let stats: StatsCache = serde_json::from_str(json).expect("parse");
+        assert_eq!(
+            stats.extra.get("anotherNewField"),
+            Some(&serde_json::Value::String("hello".to_string()))
+        );
+        assert!(stats.extra.contains_key("futureUnknownKey"));
+    }
 }
 
 impl StatsCache {

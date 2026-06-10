@@ -1,6 +1,6 @@
 {
   "name": "vcsql",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "SQL query engine for Git repository data",
   "license": "MIT",
   "repository": {
