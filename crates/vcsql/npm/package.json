@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/douglance/vcsql.git"
+    "url": "git+https://github.com/douglance/devsql.git"
   },
-  "homepage": "https://github.com/douglance/vcsql",
+  "homepage": "https://github.com/douglance/devsql",
   "bugs": {
-    "url": "https://github.com/douglance/vcsql/issues"
+    "url": "https://github.com/douglance/devsql/issues"
   },
   "keywords": [
     "git",
@@ -33,8 +33,7 @@
   },
   "os": [
     "darwin",
-    "linux",
-    "win32"
+    "linux"
   ],
   "cpu": [
     "x64",

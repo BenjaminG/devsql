@@ -63,7 +63,7 @@ pub async fn prompts(
         }
     }
 
-    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
 
     if let Some(limit) = limit {
         entries.truncate(limit);
@@ -197,8 +197,8 @@ pub async fn sessions(
     let mut sessions = ds.list_sessions()?;
 
     match sort_by {
-        "time" => sessions.sort_by(|a, b| b.modified.cmp(&a.modified)),
-        "size" => sessions.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes)),
+        "time" => sessions.sort_by_key(|s| std::cmp::Reverse(s.modified)),
+        "size" => sessions.sort_by_key(|s| std::cmp::Reverse(s.size_bytes)),
         _ => {}
     }
 
@@ -316,6 +316,7 @@ pub async fn stats(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn search(
     config: &Config,
     term: &str,
@@ -480,6 +481,7 @@ pub async fn todos(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn duplicates(
     config: &Config,
     threshold: f64,

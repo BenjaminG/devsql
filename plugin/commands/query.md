@@ -37,7 +37,8 @@ devsql impact src/lib.rs         # Exports and dependents
 - `history` — Claude prompt history (`~/.claude/history.jsonl`)
 - `jhistory` — Codex prompt history (`~/.codex/history.jsonl`, or `$CODEX_HOME/history.jsonl`)
 - `codex_history` — Alias of `jhistory`
-- `transcripts` — Claude transcript logs (type, content, tool_name, session_id)
+- `transcripts` — Claude transcript logs from `~/.claude/projects/<slug>/**/*.jsonl` incl. subagents, plus legacy `~/.claude/transcripts/*.jsonl` (type, content, tool_name, session_id, `_project`, `_agent_id`, timestamp, model, `usage_input_tokens`, `usage_output_tokens`, `usage_cache_read_input_tokens`, `usage_cache_creation_input_tokens`, `usage_service_tier`, …)
+- `sessions` — One row per Claude session (session_id, project, cwd, git_branch, version, title, first/last_timestamp, user/assistant_message_count, subagent_count, `total_*_tokens`, pr_url, pr_number)
 - `todos` — Claude todo items (content, status)
 
 ### Git Tables (from current repo)
@@ -75,11 +76,17 @@ LEFT JOIN jhistory j ON date(c.authored_at) = date(datetime(j.timestamp/1000, 'u
 GROUP BY day
 ORDER BY day DESC;
 
--- Find all public functions
+-- Find all public Rust functions (Rust emits kind='fn'; JS/TS use 'function')
 SELECT name, file_path, line_start, signature
 FROM symbols
-WHERE kind = 'function' AND visibility = 'pub'
+WHERE kind = 'fn' AND visibility = 'pub'
 ORDER BY file_path, line_start;
+
+-- Top sessions by cache-read tokens
+SELECT title, project, total_cache_read_input_tokens
+FROM sessions
+ORDER BY total_cache_read_input_tokens DESC
+LIMIT 10;
 
 -- Files with the most symbols
 SELECT s.file_path, f.language, COUNT(*) as symbol_count

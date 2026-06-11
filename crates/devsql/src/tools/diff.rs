@@ -210,13 +210,9 @@ impl CommandHandler for DiffHandler {
             };
 
             let (insertions, deletions) =
-                if let Ok(patch) = git2::Patch::from_diff(&diff, delta_idx) {
-                    if let Some(ref p) = patch {
-                        let (_, adds, dels) = p.line_stats().unwrap_or((0, 0, 0));
-                        (adds, dels)
-                    } else {
-                        (0, 0)
-                    }
+                if let Ok(Some(ref p)) = git2::Patch::from_diff(&diff, delta_idx) {
+                    let (_, adds, dels) = p.line_stats().unwrap_or((0, 0, 0));
+                    (adds, dels)
                 } else {
                     (0, 0)
                 };
@@ -271,15 +267,10 @@ impl CommandHandler for DiffHandler {
 
             // Extract hunks (new-side line ranges) from the patch
             let mut hunks: Vec<(usize, usize)> = Vec::new();
-            if let Ok(patch) = git2::Patch::from_diff(&diff, delta_idx) {
-                if let Some(ref p) = patch {
-                    for hunk_idx in 0..p.num_hunks() {
-                        if let Ok((hunk, _)) = p.hunk(hunk_idx) {
-                            hunks.push((
-                                hunk.new_start() as usize,
-                                hunk.new_lines() as usize,
-                            ));
-                        }
+            if let Ok(Some(ref p)) = git2::Patch::from_diff(&diff, delta_idx) {
+                for hunk_idx in 0..p.num_hunks() {
+                    if let Ok((hunk, _)) = p.hunk(hunk_idx) {
+                        hunks.push((hunk.new_start() as usize, hunk.new_lines() as usize));
                     }
                 }
             }

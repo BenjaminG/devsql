@@ -5,7 +5,9 @@
 //! - Virtual tables (jhistory/codex_history, transcripts, todos) via custom scanners
 
 use crate::config::Config;
-use crate::datasources::transcript::{discover_transcript_files, TranscriptFile};
+use crate::datasources::transcript::{
+    discover_transcript_files, flattened_usage_fields, SessionAggregate, TranscriptFile,
+};
 use async_trait::async_trait;
 use futures::stream;
 use gluesql::core::ast::{ColumnDef, IndexOperator, OrderByExpr};
@@ -132,7 +134,10 @@ impl CompositeStorage {
                 .copied()
                 .unwrap_or(0);
 
-            rows.push((Key::I64(row_id), agg.into_data_row(file, subagent_count)));
+            rows.push((
+                Key::I64(row_id),
+                session_aggregate_to_data_row(agg, file, subagent_count),
+            ));
             row_id += 1;
         }
 
@@ -256,131 +261,64 @@ impl CompositeStorage {
     }
 }
 
-/// Per-session aggregation state for the `sessions` virtual table
-#[derive(Default)]
-struct SessionAggregate {
-    cwd: Option<String>,
-    git_branch: Option<String>,
-    version: Option<String>,
-    title: Option<String>,
-    first_timestamp: Option<String>,
-    last_timestamp: Option<String>,
-    user_message_count: i64,
-    assistant_message_count: i64,
-    total_input_tokens: i64,
-    total_output_tokens: i64,
-    total_cache_read_input_tokens: i64,
-    total_cache_creation_input_tokens: i64,
-    pr_url: Option<String>,
-    pr_number: Option<i64>,
-}
-
-impl SessionAggregate {
-    fn observe(&mut self, json: &JsonValue) {
-        let get_str = |key: &str| json.get(key).and_then(|v| v.as_str()).map(String::from);
-
-        if let Some(ts) = get_str("timestamp") {
-            // ISO 8601 timestamps compare correctly as strings
-            if self.first_timestamp.as_deref().is_none_or(|f| ts.as_str() < f) {
-                self.first_timestamp = Some(ts.clone());
-            }
-            if self.last_timestamp.as_deref().is_none_or(|l| ts.as_str() > l) {
-                self.last_timestamp = Some(ts);
-            }
-        }
-        if self.cwd.is_none() {
-            self.cwd = get_str("cwd");
-        }
-        if self.git_branch.is_none() {
-            self.git_branch = get_str("gitBranch");
-        }
-        if let Some(version) = get_str("version") {
-            self.version = Some(version); // last seen wins
-        }
-
-        match json.get("type").and_then(|t| t.as_str()) {
-            Some("user") => self.user_message_count += 1,
-            Some("assistant") => {
-                self.assistant_message_count += 1;
-                if let Some(usage) = json.get("message").and_then(|m| m.get("usage")) {
-                    let tok = |key: &str| usage.get(key).and_then(json_value_as_i64).unwrap_or(0);
-                    self.total_input_tokens += tok("input_tokens");
-                    self.total_output_tokens += tok("output_tokens");
-                    self.total_cache_read_input_tokens += tok("cache_read_input_tokens");
-                    self.total_cache_creation_input_tokens += tok("cache_creation_input_tokens");
-                }
-            }
-            Some("ai-title") => {
-                if let Some(title) = get_str("aiTitle") {
-                    self.title = Some(title);
-                }
-            }
-            Some("pr-link") => {
-                if let Some(url) = get_str("prUrl") {
-                    self.pr_url = Some(url);
-                }
-                if let Some(n) = json.get("prNumber").and_then(json_value_as_i64) {
-                    self.pr_number = Some(n);
-                }
-            }
-            _ => {}
-        }
+/// Convert a finished [`SessionAggregate`] into a `sessions` table DataRow
+fn session_aggregate_to_data_row(
+    agg: SessionAggregate,
+    file: &TranscriptFile,
+    subagent_count: i64,
+) -> DataRow {
+    let mut map = BTreeMap::new();
+    map.insert(
+        "session_id".to_string(),
+        Value::Str(file.session_id.clone()),
+    );
+    if let Some(project) = &file.project {
+        map.insert("project".to_string(), Value::Str(project.clone()));
     }
 
-    fn into_data_row(self, file: &TranscriptFile, subagent_count: i64) -> DataRow {
-        let mut map = BTreeMap::new();
-        map.insert(
-            "session_id".to_string(),
-            Value::Str(file.session_id.clone()),
-        );
-        if let Some(project) = &file.project {
-            map.insert("project".to_string(), Value::Str(project.clone()));
+    let mut put_str = |key: &str, value: Option<String>| {
+        if let Some(value) = value {
+            map.insert(key.to_string(), Value::Str(value));
         }
+    };
+    put_str("cwd", agg.cwd);
+    put_str("git_branch", agg.git_branch);
+    put_str("version", agg.version);
+    put_str("title", agg.title);
+    put_str("first_timestamp", agg.first_timestamp);
+    put_str("last_timestamp", agg.last_timestamp);
+    put_str("pr_url", agg.pr_url);
 
-        let mut put_str = |key: &str, value: Option<String>| {
-            if let Some(value) = value {
-                map.insert(key.to_string(), Value::Str(value));
-            }
-        };
-        put_str("cwd", self.cwd);
-        put_str("git_branch", self.git_branch);
-        put_str("version", self.version);
-        put_str("title", self.title);
-        put_str("first_timestamp", self.first_timestamp);
-        put_str("last_timestamp", self.last_timestamp);
-        put_str("pr_url", self.pr_url);
-
-        map.insert(
-            "user_message_count".to_string(),
-            Value::I64(self.user_message_count),
-        );
-        map.insert(
-            "assistant_message_count".to_string(),
-            Value::I64(self.assistant_message_count),
-        );
-        map.insert("subagent_count".to_string(), Value::I64(subagent_count));
-        map.insert(
-            "total_input_tokens".to_string(),
-            Value::I64(self.total_input_tokens),
-        );
-        map.insert(
-            "total_output_tokens".to_string(),
-            Value::I64(self.total_output_tokens),
-        );
-        map.insert(
-            "total_cache_read_input_tokens".to_string(),
-            Value::I64(self.total_cache_read_input_tokens),
-        );
-        map.insert(
-            "total_cache_creation_input_tokens".to_string(),
-            Value::I64(self.total_cache_creation_input_tokens),
-        );
-        if let Some(n) = self.pr_number {
-            map.insert("pr_number".to_string(), Value::I64(n));
-        }
-
-        DataRow::Map(map)
+    map.insert(
+        "user_message_count".to_string(),
+        Value::I64(agg.user_message_count),
+    );
+    map.insert(
+        "assistant_message_count".to_string(),
+        Value::I64(agg.assistant_message_count),
+    );
+    map.insert("subagent_count".to_string(), Value::I64(subagent_count));
+    map.insert(
+        "total_input_tokens".to_string(),
+        Value::I64(agg.total_input_tokens),
+    );
+    map.insert(
+        "total_output_tokens".to_string(),
+        Value::I64(agg.total_output_tokens),
+    );
+    map.insert(
+        "total_cache_read_input_tokens".to_string(),
+        Value::I64(agg.total_cache_read_input_tokens),
+    );
+    map.insert(
+        "total_cache_creation_input_tokens".to_string(),
+        Value::I64(agg.total_cache_creation_input_tokens),
+    );
+    if let Some(n) = agg.pr_number {
+        map.insert("pr_number".to_string(), Value::I64(n));
     }
+
+    DataRow::Map(map)
 }
 
 /// Convert a JSON object to a DataRow with metadata columns
@@ -419,43 +357,11 @@ fn json_to_data_row_with_meta(json: &JsonValue, file: &TranscriptFile) -> DataRo
 /// added when the source value exists and the key is not already present at
 /// the top level of the record (existing JSON keys always win).
 fn flatten_usage_columns(json: &JsonValue, map: &mut BTreeMap<String, Value>) {
-    if json.get("type").and_then(|t| t.as_str()) != Some("assistant") {
-        return;
-    }
-    let Some(message) = json.get("message") else {
-        return;
-    };
-
-    let mut put = |key: &str, value: Option<&JsonValue>| {
-        if let Some(value) = value {
-            if !value.is_null() && !map.contains_key(key) {
-                map.insert(key.to_string(), json_value_to_glue_value(value));
-            }
+    for (key, value) in flattened_usage_fields(json) {
+        if !map.contains_key(key) {
+            map.insert(key.to_string(), json_value_to_glue_value(value));
         }
-    };
-
-    put("model", message.get("model"));
-
-    let usage = message.get("usage");
-    let get = |path: &str| usage.and_then(|u| u.get(path));
-    put("usage_input_tokens", get("input_tokens"));
-    put("usage_output_tokens", get("output_tokens"));
-    put("usage_cache_read_input_tokens", get("cache_read_input_tokens"));
-    put(
-        "usage_cache_creation_input_tokens",
-        get("cache_creation_input_tokens"),
-    );
-    put("usage_service_tier", get("service_tier"));
-
-    let cache_creation = usage.and_then(|u| u.get("cache_creation"));
-    put(
-        "usage_ephemeral_5m_input_tokens",
-        cache_creation.and_then(|c| c.get("ephemeral_5m_input_tokens")),
-    );
-    put(
-        "usage_ephemeral_1h_input_tokens",
-        cache_creation.and_then(|c| c.get("ephemeral_1h_input_tokens")),
-    );
+    }
 }
 
 /// Convert a todo JSON object to a DataRow
@@ -1233,7 +1139,10 @@ mod tests {
         assert_eq!(rich["subagent_count"], serde_json::json!(2));
         assert_eq!(rich["total_input_tokens"], serde_json::json!(10));
         assert_eq!(rich["total_output_tokens"], serde_json::json!(130));
-        assert_eq!(rich["total_cache_read_input_tokens"], serde_json::json!(150));
+        assert_eq!(
+            rich["total_cache_read_input_tokens"],
+            serde_json::json!(150)
+        );
         assert_eq!(
             rich["total_cache_creation_input_tokens"],
             serde_json::json!(225)

@@ -48,8 +48,15 @@ All commands accept `--repo` / `-r` and `--data-dir` / `-d` options.
 | `history` | timestamp, display (prompt text), project, pastedContents |
 | `jhistory` | session_id, ts, text, display, timestamp |
 | `codex_history` | Alias of `jhistory` |
-| `transcripts` | type, content, tool_name, session_id |
+| `transcripts` | type, content, tool_name, session_id, _source_file, _session_id, _project, _agent_id, timestamp, model, usage_input_tokens, usage_output_tokens, usage_cache_read_input_tokens, usage_cache_creation_input_tokens, usage_ephemeral_5m_input_tokens, usage_ephemeral_1h_input_tokens, usage_service_tier |
+| `sessions` | session_id, project, cwd, git_branch, version, title, first_timestamp, last_timestamp, user_message_count, assistant_message_count, subagent_count, total_input_tokens, total_output_tokens, total_cache_read_input_tokens, total_cache_creation_input_tokens, pr_url, pr_number |
 | `todos` | content, status |
+
+`transcripts` covers `~/.claude/projects/<slug>/**/*.jsonl` (top-level sessions
+plus subagent transcripts) and the legacy `~/.claude/transcripts/*.jsonl`.
+`sessions` has one aggregated row per session file; `_project` / `project` is
+the project slug directory (e.g. `-Users-you-Developer-app`), NULL for legacy
+files. `_agent_id` is set only on subagent rows.
 
 ### Git Tables
 | Table | Columns |
@@ -72,7 +79,7 @@ All commands accept `--repo` / `-r` and `--data-dir` / `-d` options.
 
 **Supported languages for symbol extraction:** Rust, TypeScript, JavaScript, Python, Go.
 
-**Symbol kinds:** function, struct, enum, trait, type, const, static, mod, macro, class, interface (varies by language).
+**Symbol kinds:** `fn` (Rust), `function` (TypeScript/JavaScript/Python), struct, enum, trait, type, const, static, mod, macro, class, interface (varies by language).
 
 ## Approach
 
@@ -124,11 +131,24 @@ WHERE type = 'tool_use'
 GROUP BY tool_name
 ORDER BY uses DESC;
 
--- Find all public functions
+-- Find all public Rust functions (Rust emits kind='fn'; JS/TS use 'function')
 SELECT name, file_path, line_start, signature
 FROM symbols
-WHERE kind = 'function' AND visibility = 'pub'
+WHERE kind = 'fn' AND visibility = 'pub'
 ORDER BY file_path, line_start;
+
+-- Top sessions by cache-read tokens
+SELECT title, project, total_cache_read_input_tokens, last_timestamp
+FROM sessions
+ORDER BY total_cache_read_input_tokens DESC
+LIMIT 10;
+
+-- Daily output tokens by model (flattened usage columns)
+SELECT DATE(timestamp) as day, model, SUM(usage_output_tokens) as output_tokens
+FROM transcripts
+WHERE type = 'assistant' AND usage_output_tokens IS NOT NULL
+GROUP BY day, model
+ORDER BY day DESC;
 
 -- Codebase overview by language
 SELECT language, COUNT(*) as files, SUM(line_count) as total_lines

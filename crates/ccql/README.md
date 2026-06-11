@@ -13,20 +13,13 @@ brew install douglance/tap/ccql
 ### Shell script (macOS/Linux)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/douglance/ccql/releases/latest/download/ccql-installer.sh | sh
-```
-
-### PowerShell (Windows)
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/douglance/ccql/releases/latest/download/ccql-installer.ps1 | iex"
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/douglance/devsql/releases/latest/download/ccql-installer.sh | sh
 ```
 
 ### npm
 
-```bash
-npm install -g ccql
-```
+npm package pending 0.3.0 publish — use the shell script or Homebrew in the
+meantime.
 
 ### Cargo
 
@@ -37,9 +30,9 @@ cargo install ccql
 ### From source
 
 ```bash
-git clone https://github.com/douglance/ccql
-cd ccql
-cargo install --path .
+git clone https://github.com/douglance/devsql
+cd devsql
+cargo install --path crates/ccql
 ```
 
 ## Quick Start
@@ -215,19 +208,23 @@ ORDER BY SUBSTR(timestamp, 1, 10) DESC;
 
 ## Examples
 
+> **Gotcha:** GlueSQL silently ignores `ORDER BY` on a select-list alias
+> (e.g. `ORDER BY n DESC` after `COUNT(*) as n`) — repeat the full expression
+> in the `ORDER BY` clause instead.
+
 ### Filter by Current Project
 
-Use the `project` column to limit queries to the folder you're working in:
+Use the `project` column (history) or `_project` slug column (transcripts) to
+limit queries to the folder you're working in:
 
 ```bash
 # Only prompts from current project
 ccql "SELECT display FROM history WHERE project = '$(pwd)' ORDER BY timestamp DESC LIMIT 10"
 
-# Transcripts from current project (via session join)
-ccql "SELECT t.tool_name, COUNT(*) as n FROM transcripts t
-      JOIN history h ON t._session_id = h.session_id
-      WHERE h.project = '$(pwd)' AND t.type='tool_use'
-      GROUP BY t.tool_name ORDER BY n DESC"
+# Transcript activity for the current project (slug = pwd with '/' and '.' as '-')
+ccql "SELECT _session_id, COUNT(*) as n FROM transcripts
+      WHERE _project = '$(pwd | tr '/.' '--')'
+      GROUP BY _session_id ORDER BY COUNT(*) DESC LIMIT 10"
 ```
 
 ### History Queries
@@ -240,11 +237,11 @@ ccql "SELECT display FROM history ORDER BY timestamp DESC LIMIT 10"
 ccql "SELECT display FROM history WHERE display LIKE '%error%'"
 
 # Prompts by project
-ccql "SELECT project, COUNT(*) as n FROM history GROUP BY project ORDER BY n DESC"
+ccql "SELECT project, COUNT(*) as n FROM history GROUP BY project ORDER BY COUNT(*) DESC"
 
 # Long prompts (likely pasted code)
-ccql "SELECT LENGTH(display) as len, SUBSTR(display, 1, 60) as preview
-      FROM history ORDER BY len DESC LIMIT 10"
+ccql "SELECT LENGTH(display) as len, timestamp FROM history
+      ORDER BY LENGTH(display) DESC LIMIT 10"
 
 # Recent Codex prompts
 ccql "SELECT datetime(timestamp/1000, 'unixepoch') as time, display
@@ -256,15 +253,16 @@ ccql "SELECT datetime(timestamp/1000, 'unixepoch') as time, display
 ```bash
 # Tool usage stats
 ccql "SELECT tool_name, COUNT(*) as n FROM transcripts
-      WHERE type='tool_use' GROUP BY tool_name ORDER BY n DESC"
+      WHERE type='tool_use' GROUP BY tool_name ORDER BY COUNT(*) DESC"
 
 # Most active sessions
 ccql "SELECT _session_id, COUNT(*) as n FROM transcripts
-      GROUP BY _session_id ORDER BY n DESC LIMIT 10"
+      GROUP BY _session_id ORDER BY COUNT(*) DESC LIMIT 10"
 
-# Find sessions mentioning a topic
+# Find sessions by top-level content (wrap in COALESCE: GlueSQL errors
+# on NULL LIKE, and IS NOT NULL guards don't short-circuit)
 ccql "SELECT DISTINCT _session_id FROM transcripts
-      WHERE content LIKE '%authentication%'"
+      WHERE COALESCE(content,'') LIKE '%compacted%'"
 ```
 
 ### Todo Queries

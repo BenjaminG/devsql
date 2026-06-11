@@ -48,7 +48,7 @@ impl HistoryDataSource {
             .into_iter()
             .filter(|e| {
                 let ts = e.timestamp;
-                since.map_or(true, |s| ts >= s) && until.map_or(true, |u| ts <= u)
+                since.is_none_or(|s| ts >= s) && until.is_none_or(|u| ts <= u)
             })
             .collect())
     }

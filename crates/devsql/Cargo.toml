@@ -52,6 +52,9 @@ tree-sitter-python = { workspace = true, optional = true }
 tree-sitter-go = { workspace = true, optional = true }
 streaming-iterator = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 tree-sitter-ast = [
     "dep:tree-sitter",

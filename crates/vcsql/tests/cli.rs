@@ -47,7 +47,7 @@ fn create_test_repo() -> TempDir {
 
 #[test]
 fn test_help() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.arg("--help")
         .assert()
         .success()
@@ -56,7 +56,7 @@ fn test_help() {
 
 #[test]
 fn test_version() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.arg("--version")
         .assert()
         .success()
@@ -65,7 +65,7 @@ fn test_version() {
 
 #[test]
 fn test_tables_command() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.arg("tables")
         .assert()
         .success()
@@ -75,7 +75,7 @@ fn test_tables_command() {
 
 #[test]
 fn test_schema_command() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.args(["schema", "commits"])
         .assert()
         .success()
@@ -85,7 +85,7 @@ fn test_schema_command() {
 
 #[test]
 fn test_examples_command() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.arg("examples")
         .assert()
         .success()
@@ -96,7 +96,7 @@ fn test_examples_command() {
 fn test_query_execution() {
     let temp = create_test_repo();
 
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.args(["--repo", temp.path().to_str().unwrap()])
         .arg("SELECT short_id, summary FROM commits")
         .assert()
@@ -108,7 +108,7 @@ fn test_query_execution() {
 fn test_json_output() {
     let temp = create_test_repo();
 
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.args(["--repo", temp.path().to_str().unwrap(), "--format", "json"])
         .arg("SELECT short_id, summary FROM commits")
         .assert()
@@ -121,7 +121,7 @@ fn test_json_output() {
 fn test_csv_output() {
     let temp = create_test_repo();
 
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.args(["--repo", temp.path().to_str().unwrap(), "--format", "csv"])
         .arg("SELECT short_id, summary FROM commits")
         .assert()
@@ -131,7 +131,7 @@ fn test_csv_output() {
 
 #[test]
 fn test_nonexistent_repo() {
-    let mut cmd = Command::cargo_bin("vcsql").unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_vcsql"));
     cmd.args(["--repo", "/nonexistent/path"])
         .arg("SELECT * FROM commits")
         .assert()

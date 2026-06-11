@@ -16,7 +16,10 @@ pub struct FuzzyDeduper {
 
 impl FuzzyDeduper {
     pub fn new(threshold: f64, min_length: usize) -> Self {
-        Self { threshold, min_length }
+        Self {
+            threshold,
+            min_length,
+        }
     }
 
     /// Cluster similar prompts together using fuzzy matching
@@ -40,7 +43,7 @@ impl FuzzyDeduper {
             .into_iter()
             .map(|(k, (count, ts))| (k, count, ts))
             .collect();
-        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items.sort_by_key(|item| std::cmp::Reverse(item.1));
 
         // Cluster similar items
         let mut clusters: Vec<PromptCluster> = Vec::new();
@@ -75,12 +78,12 @@ impl FuzzyDeduper {
 
     /// Sort clusters by count (default)
     pub fn sort_by_count(clusters: &mut [PromptCluster]) {
-        clusters.sort_by(|a, b| b.count.cmp(&a.count));
+        clusters.sort_by_key(|c| std::cmp::Reverse(c.count));
     }
 
     /// Sort clusters by latest timestamp
     pub fn sort_by_latest(clusters: &mut [PromptCluster]) {
-        clusters.sort_by(|a, b| b.latest_timestamp.cmp(&a.latest_timestamp));
+        clusters.sort_by_key(|c| std::cmp::Reverse(c.latest_timestamp));
     }
 
     fn normalize(&self, s: &str) -> String {

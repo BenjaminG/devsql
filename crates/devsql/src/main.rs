@@ -190,7 +190,7 @@ fn build_cli() -> Cli {
                 ])
                 .hint(
                     "TABLES:\n  \
-                     Claude Code:  history (prompts), transcripts (conversations), todos\n  \
+                     Claude Code:  history (prompts), transcripts (conversations), sessions (per-session stats), todos\n  \
                      Codex CLI:    jhistory / codex_history (session_id, ts, text, display, timestamp)\n  \
                      Git:          commits, diffs, diff_files, branches\n\n\
                      TELL YOUR AI AGENT:\n  \

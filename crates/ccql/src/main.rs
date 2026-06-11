@@ -364,8 +364,7 @@ async fn main() -> Result<()> {
 fn print_tables_info(config: &Config) {
     let history_exists = config.history_file().exists();
     let jhistory_exists = config.jhistory_file().exists();
-    let transcripts_exists =
-        config.projects_dir().exists() || config.transcripts_dir().exists();
+    let transcripts_exists = config.projects_dir().exists() || config.transcripts_dir().exists();
     let todos_exists = config.todos_dir().exists();
 
     println!("TABLES");

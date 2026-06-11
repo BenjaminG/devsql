@@ -4,9 +4,8 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const zlib = require('zlib');
 
-const REPO = 'douglance/vcsql';
+const REPO = 'douglance/devsql';
 const BIN_NAME = 'vcsql';
 
 function getPlatformTarget() {
@@ -18,7 +17,6 @@ function getPlatformTarget() {
     'darwin-arm64': 'aarch64-apple-darwin',
     'linux-x64': 'x86_64-unknown-linux-gnu',
     'linux-arm64': 'aarch64-unknown-linux-gnu',
-    'win32-x64': 'x86_64-pc-windows-msvc',
   };
 
   const key = `${platform}-${arch}`;
@@ -26,7 +24,7 @@ function getPlatformTarget() {
 
   if (!target) {
     console.error(`Unsupported platform: ${platform}-${arch}`);
-    console.error('Supported platforms: darwin-x64, darwin-arm64, linux-x64, linux-arm64, win32-x64');
+    console.error('Supported platforms: darwin-x64, darwin-arm64, linux-x64, linux-arm64');
     process.exit(1);
   }
 
@@ -34,13 +32,13 @@ function getPlatformTarget() {
 }
 
 function getVersion() {
-  const packageJson = require('../package.json');
-  return packageJson.version;
+  // VCSQL_VERSION env var allows pinning to a specific release (used in tests/CI)
+  return process.env.VCSQL_VERSION || require('../package.json').version;
 }
 
 function getDownloadUrl(version, target) {
-  const ext = target.includes('windows') ? 'zip' : 'tar.gz';
-  return `https://github.com/${REPO}/releases/download/v${version}/${BIN_NAME}-${target}.${ext}`;
+  // Release assets are .tar.xz archives containing vcsql-<target>/vcsql
+  return `https://github.com/${REPO}/releases/download/v${version}/${BIN_NAME}-${target}.tar.xz`;
 }
 
 function downloadFile(url) {
@@ -66,27 +64,16 @@ function downloadFile(url) {
   });
 }
 
-function extractTarGz(buffer, destDir) {
-  const tmpFile = path.join(destDir, 'tmp.tar.gz');
+function extractTarXz(buffer, destDir, target) {
+  const tmpFile = path.join(destDir, 'tmp.tar.xz');
   fs.writeFileSync(tmpFile, buffer);
-  execSync(`tar -xzf "${tmpFile}" -C "${destDir}"`, { stdio: 'inherit' });
+  execSync(`tar -xJf "${tmpFile}" -C "${destDir}"`, { stdio: 'inherit' });
   fs.unlinkSync(tmpFile);
-}
 
-function extractZip(buffer, destDir) {
-  const tmpFile = path.join(destDir, 'tmp.zip');
-  fs.writeFileSync(tmpFile, buffer);
-
-  // Use unzip on Unix, PowerShell on Windows
-  if (process.platform === 'win32') {
-    execSync(`powershell -command "Expand-Archive -Path '${tmpFile}' -DestinationPath '${destDir}' -Force"`, {
-      stdio: 'inherit'
-    });
-  } else {
-    execSync(`unzip -o "${tmpFile}" -d "${destDir}"`, { stdio: 'inherit' });
-  }
-
-  fs.unlinkSync(tmpFile);
+  // The archive contains <BIN_NAME>-<target>/<BIN_NAME>
+  const extractedDir = path.join(destDir, `${BIN_NAME}-${target}`);
+  fs.copyFileSync(path.join(extractedDir, BIN_NAME), path.join(destDir, BIN_NAME));
+  fs.rmSync(extractedDir, { recursive: true, force: true });
 }
 
 async function install() {
@@ -94,8 +81,7 @@ async function install() {
   const version = getVersion();
   const url = getDownloadUrl(version, target);
   const binDir = path.join(__dirname, '..', 'bin');
-  const isWindows = target.includes('windows');
-  const binPath = path.join(binDir, isWindows ? `${BIN_NAME}.exe` : BIN_NAME);
+  const binPath = path.join(binDir, BIN_NAME);
 
   console.log(`Downloading ${BIN_NAME} v${version} for ${target}...`);
 
@@ -106,16 +92,8 @@ async function install() {
       fs.mkdirSync(binDir, { recursive: true });
     }
 
-    if (isWindows) {
-      extractZip(buffer, binDir);
-    } else {
-      extractTarGz(buffer, binDir);
-    }
-
-    // Make binary executable on Unix
-    if (!isWindows) {
-      fs.chmodSync(binPath, 0o755);
-    }
+    extractTarXz(buffer, binDir, target);
+    fs.chmodSync(binPath, 0o755);
 
     console.log(`Successfully installed ${BIN_NAME} to ${binPath}`);
   } catch (error) {

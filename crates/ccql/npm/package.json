@@ -6,9 +6,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/douglance/ccql.git"
+    "url": "git+https://github.com/douglance/devsql.git"
   },
-  "homepage": "https://github.com/douglance/ccql",
+  "homepage": "https://github.com/douglance/devsql",
   "keywords": [
     "claude",
     "sql",

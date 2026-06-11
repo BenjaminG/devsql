@@ -83,7 +83,8 @@ Common options: `--repo` / `-r` (default `.`), `--data-dir` / `-d` (default `~/.
 | Table | Source | Description |
 |-------|--------|-------------|
 | `history` | `~/.claude/history.jsonl` | Claude Code prompts (timestamp, display, project) |
-| `transcripts` | `~/.claude/transcripts/*.jsonl` | Full conversations (type, content, tool_name, session_id) |
+| `transcripts` | `~/.claude/projects/<slug>/**/*.jsonl` (+ legacy `~/.claude/transcripts/*.jsonl`) | Full conversations incl. subagents (type, content, tool_name, session_id, `_project`, `_agent_id`, timestamp, model, `usage_*` token columns) |
+| `sessions` | Same files as `transcripts` | One row per session: title, cwd, git_branch, first/last_timestamp, message counts, subagent_count, `total_*_tokens`, pr_url, pr_number |
 | `todos` | `~/.claude/todos/*.json` | Task items (content, status) |
 | `jhistory` | `~/.codex/history.jsonl` | Codex CLI prompts (session_id, text, display, timestamp) |
 | `codex_history` | — | Alias for `jhistory` |

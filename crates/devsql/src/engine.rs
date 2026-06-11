@@ -1,9 +1,13 @@
 //! Unified query engine that combines ccql and vcsql data
 
 use crate::{Error, Result};
+use ccql::datasources::transcript::{
+    discover_transcript_files, flattened_usage_fields, SessionAggregate,
+};
 use chrono::DateTime;
 use rusqlite::{params, Connection};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Unified query engine that loads data from both Claude Code and Git
@@ -46,6 +50,7 @@ impl UnifiedEngine {
                 "history" => self.load_history()?,
                 "jhistory" | "codex_history" => self.load_jhistory()?,
                 "transcripts" => self.load_transcripts()?,
+                "sessions" => self.load_sessions()?,
                 "todos" => self.load_todos()?,
                 _ => {}
             }
@@ -143,6 +148,16 @@ impl UnifiedEngine {
         Ok(())
     }
 
+    /// Build a ccql Config for transcript discovery (None when the Claude
+    /// data directory does not exist).
+    fn ccql_config(&self) -> Option<ccql::Config> {
+        ccql::Config::new_with_codex_data_dir(
+            self.claude_data_dir.clone(),
+            self.codex_data_dir.clone(),
+        )
+        .ok()
+    }
+
     fn load_transcripts(&mut self) -> Result<()> {
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS transcripts (
@@ -150,64 +165,181 @@ impl UnifiedEngine {
                 type TEXT,
                 content TEXT,
                 tool_name TEXT,
-                session_id TEXT
+                session_id TEXT,
+                _source_file TEXT,
+                _session_id TEXT,
+                _project TEXT,
+                _agent_id TEXT,
+                timestamp TEXT,
+                model TEXT,
+                usage_input_tokens INTEGER,
+                usage_output_tokens INTEGER,
+                usage_cache_read_input_tokens INTEGER,
+                usage_cache_creation_input_tokens INTEGER,
+                usage_ephemeral_5m_input_tokens INTEGER,
+                usage_ephemeral_1h_input_tokens INTEGER,
+                usage_service_tier TEXT
             )",
             [],
         )?;
 
-        let transcripts_dir = self.claude_data_dir.join("transcripts");
-        if !transcripts_dir.is_dir() {
+        let Some(config) = self.ccql_config() else {
             return Ok(());
-        }
-
-        let entries = match std::fs::read_dir(&transcripts_dir) {
-            Ok(e) => e,
-            Err(_) => return Ok(()),
         };
 
-        for entry in entries.filter_map(|e| e.ok()) {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO transcripts (type, content, tool_name, session_id,
+                    _source_file, _session_id, _project, _agent_id, timestamp,
+                    model, usage_input_tokens, usage_output_tokens,
+                    usage_cache_read_input_tokens, usage_cache_creation_input_tokens,
+                    usage_ephemeral_5m_input_tokens, usage_ephemeral_1h_input_tokens,
+                    usage_service_tier)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            )?;
 
-            let session_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
+            for file in discover_transcript_files(&config) {
+                let content = match std::fs::read_to_string(&file.path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+                for line in content.lines() {
+                    let Ok(entry) = serde_json::from_str::<Value>(line) else {
+                        continue;
+                    };
 
-            for line in content.lines() {
-                if let Ok(entry) = serde_json::from_str::<Value>(line) {
-                    let msg_type = entry
-                        .get("type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
+                    let msg_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
                     let msg_content = entry
                         .get("content")
                         .and_then(|v| v.as_str())
                         .or_else(|| entry.get("message").and_then(|v| v.as_str()))
                         .unwrap_or("");
-
                     let tool_name = entry
                         .get("tool_name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
+                    let timestamp = entry.get("timestamp").and_then(|v| v.as_str());
 
-                    self.conn.execute(
-                        "INSERT INTO transcripts (type, content, tool_name, session_id)
-                         VALUES (?1, ?2, ?3, ?4)",
-                        params![msg_type, msg_content, tool_name, session_id],
-                    )?;
+                    let usage: HashMap<&str, &Value> =
+                        flattened_usage_fields(&entry).into_iter().collect();
+                    let usage_int = |key: &str| usage.get(key).and_then(|v| v.as_i64());
+
+                    stmt.execute(params![
+                        msg_type,
+                        msg_content,
+                        tool_name,
+                        file.session_id,
+                        file.source_file,
+                        file.session_id,
+                        file.project,
+                        file.agent_id,
+                        timestamp,
+                        usage.get("model").and_then(|v| v.as_str()),
+                        usage_int("usage_input_tokens"),
+                        usage_int("usage_output_tokens"),
+                        usage_int("usage_cache_read_input_tokens"),
+                        usage_int("usage_cache_creation_input_tokens"),
+                        usage_int("usage_ephemeral_5m_input_tokens"),
+                        usage_int("usage_ephemeral_1h_input_tokens"),
+                        usage.get("usage_service_tier").and_then(|v| v.as_str()),
+                    ])?;
                 }
             }
         }
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    fn load_sessions(&mut self) -> Result<()> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT,
+                project TEXT,
+                cwd TEXT,
+                git_branch TEXT,
+                version TEXT,
+                title TEXT,
+                first_timestamp TEXT,
+                last_timestamp TEXT,
+                user_message_count INTEGER,
+                assistant_message_count INTEGER,
+                subagent_count INTEGER,
+                total_input_tokens INTEGER,
+                total_output_tokens INTEGER,
+                total_cache_read_input_tokens INTEGER,
+                total_cache_creation_input_tokens INTEGER,
+                pr_url TEXT,
+                pr_number INTEGER
+            )",
+            [],
+        )?;
+
+        let Some(config) = self.ccql_config() else {
+            return Ok(());
+        };
+
+        let files = discover_transcript_files(&config);
+
+        // Subagent file counts keyed by (project, parent session id)
+        let mut subagent_counts: HashMap<(Option<String>, String), i64> = HashMap::new();
+        for file in &files {
+            if file.agent_id.is_some() {
+                *subagent_counts
+                    .entry((file.project.clone(), file.session_id.clone()))
+                    .or_insert(0) += 1;
+            }
+        }
+
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO sessions VALUES
+                 (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            )?;
+
+            for file in files.iter().filter(|f| f.agent_id.is_none()) {
+                let content = match std::fs::read_to_string(&file.path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                let mut agg = SessionAggregate::default();
+                for line in content.lines() {
+                    if let Ok(json) = serde_json::from_str::<Value>(line) {
+                        agg.observe(&json);
+                    }
+                }
+
+                let subagent_count = subagent_counts
+                    .get(&(file.project.clone(), file.session_id.clone()))
+                    .copied()
+                    .unwrap_or(0);
+
+                stmt.execute(params![
+                    file.session_id,
+                    file.project,
+                    agg.cwd,
+                    agg.git_branch,
+                    agg.version,
+                    agg.title,
+                    agg.first_timestamp,
+                    agg.last_timestamp,
+                    agg.user_message_count,
+                    agg.assistant_message_count,
+                    subagent_count,
+                    agg.total_input_tokens,
+                    agg.total_output_tokens,
+                    agg.total_cache_read_input_tokens,
+                    agg.total_cache_creation_input_tokens,
+                    agg.pr_url,
+                    agg.pr_number,
+                ])?;
+            }
+        }
+        tx.commit()?;
 
         Ok(())
     }
@@ -307,14 +439,8 @@ impl UnifiedEngine {
             // Try parsing as a JSON array of todo items
             if let Ok(items) = serde_json::from_str::<Vec<Value>>(&content) {
                 for item in &items {
-                    let todo_content = item
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let status = item
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let todo_content = item.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("");
 
                     self.conn.execute(
                         "INSERT INTO todos (content, status) VALUES (?1, ?2)",
@@ -411,14 +537,11 @@ impl UnifiedEngine {
                     None
                 };
 
-                let diff = match repo.diff_tree_to_tree(
-                    parent_tree.as_ref(),
-                    Some(&commit_tree),
-                    None,
-                ) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
+                let diff =
+                    match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
 
                 let stats = match diff.stats() {
                     Ok(s) => s,
@@ -473,14 +596,11 @@ impl UnifiedEngine {
                     None
                 };
 
-                let diff = match repo.diff_tree_to_tree(
-                    parent_tree.as_ref(),
-                    Some(&commit_tree),
-                    None,
-                ) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
+                let diff =
+                    match repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&commit_tree), None) {
+                        Ok(d) => d,
+                        Err(_) => continue,
+                    };
 
                 let commit_id = commit.id().to_string();
 
@@ -505,13 +625,9 @@ impl UnifiedEngine {
 
                     // Get per-file line stats from Patch
                     let (insertions, deletions) =
-                        if let Ok(patch) = git2::Patch::from_diff(&diff, delta_idx) {
-                            if let Some(ref p) = patch {
-                                let (_, adds, dels) = p.line_stats().unwrap_or((0, 0, 0));
-                                (adds as i64, dels as i64)
-                            } else {
-                                (0i64, 0i64)
-                            }
+                        if let Ok(Some(ref p)) = git2::Patch::from_diff(&diff, delta_idx) {
+                            let (_, adds, dels) = p.line_stats().unwrap_or((0, 0, 0));
+                            (adds as i64, dels as i64)
                         } else {
                             (0i64, 0i64)
                         };
@@ -653,6 +769,7 @@ pub fn detect_tables(query: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
         "jhistory",
         "codex_history",
         "transcripts",
+        "sessions",
         "todos",
         "stats",
     ];
@@ -726,8 +843,9 @@ mod tests {
 
     #[test]
     fn detect_tables_finds_code_tables() {
-        let (_, _, code) =
-            detect_tables("SELECT * FROM source_files JOIN symbols ON source_files.path = symbols.file_path");
+        let (_, _, code) = detect_tables(
+            "SELECT * FROM source_files JOIN symbols ON source_files.path = symbols.file_path",
+        );
 
         assert!(code.contains(&"source_files".to_string()));
         assert!(code.contains(&"symbols".to_string()));
@@ -738,5 +856,114 @@ mod tests {
     fn normalize_ts_seconds_converts_millis() {
         assert_eq!(normalize_ts_seconds(1_754_402_102), 1_754_402_102);
         assert_eq!(normalize_ts_seconds(1_754_402_102_000), 1_754_402_102);
+    }
+
+    fn write(path: &std::path::Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+        std::fs::write(path, contents).expect("write");
+    }
+
+    #[test]
+    fn loads_modern_projects_layout_with_usage_and_sessions() {
+        let temp = tempfile::tempdir().expect("temp");
+        let root = temp.path();
+        let slug = "-Users-doug-Developer-app";
+
+        let records = [
+            r#"{"type":"user","content":"hi","timestamp":"2026-06-01T10:00:00.000Z","cwd":"/Users/doug/Developer/app","gitBranch":"main","version":"2.1.100"}"#,
+            r#"{"type":"assistant","timestamp":"2026-06-01T10:00:05.000Z","message":{"model":"claude-opus-4-7","usage":{"input_tokens":6,"output_tokens":127,"cache_read_input_tokens":100,"cache_creation_input_tokens":200}}}"#,
+            r#"{"type":"ai-title","aiTitle":"Fix the widget","sessionId":"sess-rich"}"#,
+            r#"{"type":"pr-link","sessionId":"sess-rich","prNumber":42,"prUrl":"https://github.com/org/repo/pull/42"}"#,
+        ]
+        .join("\n");
+        write(
+            &root.join("projects").join(slug).join("sess-rich.jsonl"),
+            &records,
+        );
+        write(
+            &root
+                .join("projects")
+                .join(slug)
+                .join("sess-rich")
+                .join("subagents")
+                .join("agent-one.jsonl"),
+            r#"{"type":"assistant","message":{"usage":{"input_tokens":999,"output_tokens":999}}}"#,
+        );
+        write(
+            &root.join("transcripts").join("ses_old.jsonl"),
+            r#"{"type":"user","content":"legacy"}"#,
+        );
+
+        let mut engine =
+            UnifiedEngine::new(root.to_path_buf(), root.to_path_buf()).expect("engine");
+        engine
+            .load_claude_tables(&["transcripts", "sessions"])
+            .expect("load");
+
+        // All files across both layouts are ingested (4 + 1 + 1 records)
+        let count = engine
+            .query("SELECT COUNT(*) AS n FROM transcripts")
+            .expect("count");
+        assert_eq!(count[0]["n"], serde_json::json!(6));
+
+        // _project / _agent_id metadata columns
+        let sub = engine
+            .query("SELECT _project, _agent_id, _session_id FROM transcripts WHERE _agent_id IS NOT NULL")
+            .expect("subagent row");
+        assert_eq!(sub.len(), 1);
+        assert_eq!(sub[0]["_project"], serde_json::json!(slug));
+        assert_eq!(sub[0]["_agent_id"], serde_json::json!("agent-one"));
+        assert_eq!(sub[0]["_session_id"], serde_json::json!("sess-rich"));
+
+        // Flattened usage columns
+        let usage = engine
+            .query(
+                "SELECT model, usage_input_tokens, usage_output_tokens, \
+                 usage_cache_read_input_tokens, usage_cache_creation_input_tokens \
+                 FROM transcripts WHERE _agent_id IS NULL AND type = 'assistant'",
+            )
+            .expect("usage row");
+        assert_eq!(usage.len(), 1);
+        assert_eq!(usage[0]["model"], serde_json::json!("claude-opus-4-7"));
+        assert_eq!(usage[0]["usage_input_tokens"], serde_json::json!(6));
+        assert_eq!(usage[0]["usage_output_tokens"], serde_json::json!(127));
+        assert_eq!(
+            usage[0]["usage_cache_read_input_tokens"],
+            serde_json::json!(100)
+        );
+        assert_eq!(
+            usage[0]["usage_cache_creation_input_tokens"],
+            serde_json::json!(200)
+        );
+
+        // sessions table: one row per top-level session file
+        let sessions = engine
+            .query(
+                "SELECT session_id, project, title, pr_number, pr_url, subagent_count, \
+                 user_message_count, assistant_message_count, total_input_tokens, \
+                 total_output_tokens FROM sessions ORDER BY session_id",
+            )
+            .expect("sessions");
+        assert_eq!(sessions.len(), 2);
+
+        let legacy = &sessions[0];
+        assert_eq!(legacy["session_id"], serde_json::json!("old"));
+        assert_eq!(legacy["project"], serde_json::Value::Null);
+        assert_eq!(legacy["subagent_count"], serde_json::json!(0));
+
+        let rich = &sessions[1];
+        assert_eq!(rich["session_id"], serde_json::json!("sess-rich"));
+        assert_eq!(rich["project"], serde_json::json!(slug));
+        assert_eq!(rich["title"], serde_json::json!("Fix the widget"));
+        assert_eq!(rich["pr_number"], serde_json::json!(42));
+        assert_eq!(
+            rich["pr_url"],
+            serde_json::json!("https://github.com/org/repo/pull/42")
+        );
+        assert_eq!(rich["subagent_count"], serde_json::json!(1));
+        assert_eq!(rich["user_message_count"], serde_json::json!(1));
+        assert_eq!(rich["assistant_message_count"], serde_json::json!(1));
+        assert_eq!(rich["total_input_tokens"], serde_json::json!(6));
+        assert_eq!(rich["total_output_tokens"], serde_json::json!(127));
     }
 }

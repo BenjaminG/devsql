@@ -5,20 +5,20 @@
 
 use crate::Result;
 
+#[cfg(feature = "tree-sitter-ast")]
+pub mod ast_nodes;
+#[cfg(feature = "tree-sitter-ast")]
+pub mod imports;
 pub mod source_files;
 pub mod source_lines;
 pub mod symbols;
 #[cfg(feature = "tree-sitter-ast")]
-pub mod imports;
-#[cfg(feature = "tree-sitter-ast")]
-pub mod ast_nodes;
-#[cfg(feature = "tree-sitter-ast")]
 pub mod tree_sitter;
 
+use rusqlite::Connection;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use rusqlite::Connection;
 
 /// Metadata about a discovered source file.
 pub struct FileInfo {
@@ -80,10 +80,7 @@ impl<'a> LineIndex<'a> {
         }
         let idx = line - 1;
         let start = *self.line_starts.get(idx).unwrap_or(&0);
-        let end = *self
-            .line_starts
-            .get(idx + 1)
-            .unwrap_or(&self.text.len());
+        let end = *self.line_starts.get(idx + 1).unwrap_or(&self.text.len());
         self.text
             .get(start..end)
             .unwrap_or("")
@@ -227,11 +224,7 @@ pub fn walk_source_files(repo_path: &Path) -> Vec<FileInfo> {
             continue;
         }
 
-        let name = entry
-            .file_name()
-            .to_str()
-            .unwrap_or("")
-            .to_string();
+        let name = entry.file_name().to_str().unwrap_or("").to_string();
 
         let extension = path
             .extension()
@@ -260,9 +253,9 @@ pub fn walk_source_files(repo_path: &Path) -> Vec<FileInfo> {
         let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
         let modified_at = metadata
             .and_then(|m| m.modified().ok())
-            .and_then(|t| {
+            .map(|t| {
                 let dt: chrono::DateTime<chrono::Utc> = t.into();
-                Some(dt.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
             })
             .unwrap_or_default();
 

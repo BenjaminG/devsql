@@ -19,7 +19,7 @@ The plugin auto-installs the `devsql` binary via Homebrew on first session start
 
 ```
 /devsql:query SELECT * FROM history LIMIT 10
-/devsql:query SELECT * FROM symbols WHERE kind = 'function' LIMIT 10
+/devsql:query SELECT * FROM symbols WHERE kind = 'fn' LIMIT 10
 ```
 
 ### Agent Tool Commands
@@ -46,7 +46,8 @@ Claude will automatically use devsql to answer.
 
 ### Claude Code
 - `history` — Your prompts
-- `transcripts` — Full conversations (type, content, tool_name, session_id)
+- `transcripts` — Full conversations incl. subagents (type, content, tool_name, session_id, `_project`, `_agent_id`, timestamp, model, `usage_*` token columns)
+- `sessions` — One row per session (title, project, message counts, subagent_count, `total_*_tokens`, pr_url, pr_number)
 - `todos` — Todo items (content, status)
 
 ### Codex CLI
@@ -93,10 +94,10 @@ JOIN commits c ON date(datetime(h.timestamp/1000, 'unixepoch')) = date(c.authore
 GROUP BY h.display
 ORDER BY commits_after DESC LIMIT 10
 
--- Find all public functions
+-- Find all public Rust functions (Rust emits kind='fn'; JS/TS use 'function')
 SELECT name, file_path, line_start, signature
 FROM symbols
-WHERE kind = 'function' AND visibility = 'pub'
+WHERE kind = 'fn' AND visibility = 'pub'
 ORDER BY file_path, line_start
 
 -- Largest files by line count

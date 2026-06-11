@@ -74,6 +74,19 @@ pub struct LongestSession {
     pub timestamp: String,
 }
 
+impl StatsCache {
+    pub fn total_tokens(&self) -> u64 {
+        self.model_usage
+            .values()
+            .map(|m| m.input_tokens + m.output_tokens)
+            .sum()
+    }
+
+    pub fn activity_by_date(&self, date: &str) -> Option<&DailyActivity> {
+        self.daily_activity.iter().find(|a| a.date == date)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,18 +110,5 @@ mod tests {
             Some(&serde_json::Value::String("hello".to_string()))
         );
         assert!(stats.extra.contains_key("futureUnknownKey"));
-    }
-}
-
-impl StatsCache {
-    pub fn total_tokens(&self) -> u64 {
-        self.model_usage
-            .values()
-            .map(|m| m.input_tokens + m.output_tokens)
-            .sum()
-    }
-
-    pub fn activity_by_date(&self, date: &str) -> Option<&DailyActivity> {
-        self.daily_activity.iter().find(|a| a.date == date)
     }
 }

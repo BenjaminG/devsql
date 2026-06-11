@@ -35,7 +35,7 @@ pub fn discover_transcript_files(config: &Config) -> Vec<TranscriptFile> {
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if !path.extension().is_some_and(|e| e == "jsonl") {
+            if path.extension().is_none_or(|e| e != "jsonl") {
                 continue;
             }
             if let Some(file) = classify_project_file(path, &projects_dir) {
@@ -52,7 +52,7 @@ pub fn discover_transcript_files(config: &Config) -> Vec<TranscriptFile> {
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if !path.extension().is_some_and(|e| e == "jsonl") {
+            if path.extension().is_none_or(|e| e != "jsonl") {
                 continue;
             }
             let source_file = file_name_string(path);
@@ -84,7 +84,10 @@ fn file_name_string(path: &Path) -> String {
 /// Classify a `.jsonl` file under `projects/` into transcript metadata.
 fn classify_project_file(path: &Path, projects_dir: &Path) -> Option<TranscriptFile> {
     let rel = path.strip_prefix(projects_dir).ok()?;
-    let components: Vec<&str> = rel.components().filter_map(|c| c.as_os_str().to_str()).collect();
+    let components: Vec<&str> = rel
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
 
     let source_file = file_name_string(path);
     let stem = path.file_stem().and_then(|s| s.to_str())?.to_string();
@@ -110,6 +113,152 @@ fn classify_project_file(path: &Path, projects_dir: &Path) -> Option<TranscriptF
     }
 }
 
+/// Flattened `model` / `usage_*` column values for an assistant transcript
+/// record, extracted from `message.model` and `message.usage.*`.
+///
+/// Returns only pairs whose source value exists and is non-null. Empty for
+/// non-assistant records.
+pub fn flattened_usage_fields(json: &serde_json::Value) -> Vec<(&'static str, &serde_json::Value)> {
+    let mut fields = Vec::new();
+    if json.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return fields;
+    }
+    let Some(message) = json.get("message") else {
+        return fields;
+    };
+
+    fn put<'a>(
+        fields: &mut Vec<(&'static str, &'a serde_json::Value)>,
+        key: &'static str,
+        value: Option<&'a serde_json::Value>,
+    ) {
+        if let Some(value) = value {
+            if !value.is_null() {
+                fields.push((key, value));
+            }
+        }
+    }
+
+    put(&mut fields, "model", message.get("model"));
+
+    let usage = message.get("usage");
+    let get = |path: &str| usage.and_then(|u| u.get(path));
+    put(&mut fields, "usage_input_tokens", get("input_tokens"));
+    put(&mut fields, "usage_output_tokens", get("output_tokens"));
+    put(
+        &mut fields,
+        "usage_cache_read_input_tokens",
+        get("cache_read_input_tokens"),
+    );
+    put(
+        &mut fields,
+        "usage_cache_creation_input_tokens",
+        get("cache_creation_input_tokens"),
+    );
+    put(&mut fields, "usage_service_tier", get("service_tier"));
+
+    let cache_creation = usage.and_then(|u| u.get("cache_creation"));
+    put(
+        &mut fields,
+        "usage_ephemeral_5m_input_tokens",
+        cache_creation.and_then(|c| c.get("ephemeral_5m_input_tokens")),
+    );
+    put(
+        &mut fields,
+        "usage_ephemeral_1h_input_tokens",
+        cache_creation.and_then(|c| c.get("ephemeral_1h_input_tokens")),
+    );
+
+    fields
+}
+
+/// Per-session aggregation over a session's transcript records, used to build
+/// the `sessions` virtual table (and reused by the devsql binary).
+#[derive(Default)]
+pub struct SessionAggregate {
+    pub cwd: Option<String>,
+    pub git_branch: Option<String>,
+    pub version: Option<String>,
+    pub title: Option<String>,
+    pub first_timestamp: Option<String>,
+    pub last_timestamp: Option<String>,
+    pub user_message_count: i64,
+    pub assistant_message_count: i64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub total_cache_read_input_tokens: i64,
+    pub total_cache_creation_input_tokens: i64,
+    pub pr_url: Option<String>,
+    pub pr_number: Option<i64>,
+}
+
+impl SessionAggregate {
+    /// Fold one transcript record into the aggregate.
+    pub fn observe(&mut self, json: &serde_json::Value) {
+        let get_str = |key: &str| json.get(key).and_then(|v| v.as_str()).map(String::from);
+
+        if let Some(ts) = get_str("timestamp") {
+            // ISO 8601 timestamps compare correctly as strings
+            if self
+                .first_timestamp
+                .as_deref()
+                .is_none_or(|f| ts.as_str() < f)
+            {
+                self.first_timestamp = Some(ts.clone());
+            }
+            if self
+                .last_timestamp
+                .as_deref()
+                .is_none_or(|l| ts.as_str() > l)
+            {
+                self.last_timestamp = Some(ts);
+            }
+        }
+        if self.cwd.is_none() {
+            self.cwd = get_str("cwd");
+        }
+        if self.git_branch.is_none() {
+            self.git_branch = get_str("gitBranch");
+        }
+        if let Some(version) = get_str("version") {
+            self.version = Some(version); // last seen wins
+        }
+
+        match json.get("type").and_then(|t| t.as_str()) {
+            Some("user") => self.user_message_count += 1,
+            Some("assistant") => {
+                self.assistant_message_count += 1;
+                if let Some(usage) = json.get("message").and_then(|m| m.get("usage")) {
+                    let tok = |key: &str| {
+                        usage
+                            .get(key)
+                            .and_then(serde_json::Value::as_i64)
+                            .unwrap_or(0)
+                    };
+                    self.total_input_tokens += tok("input_tokens");
+                    self.total_output_tokens += tok("output_tokens");
+                    self.total_cache_read_input_tokens += tok("cache_read_input_tokens");
+                    self.total_cache_creation_input_tokens += tok("cache_creation_input_tokens");
+                }
+            }
+            Some("ai-title") => {
+                if let Some(title) = get_str("aiTitle") {
+                    self.title = Some(title);
+                }
+            }
+            Some("pr-link") => {
+                if let Some(url) = get_str("prUrl") {
+                    self.pr_url = Some(url);
+                }
+                if let Some(n) = json.get("prNumber").and_then(serde_json::Value::as_i64) {
+                    self.pr_number = Some(n);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub struct TranscriptDataSource {
     config: Config,
 }
@@ -131,7 +280,7 @@ impl TranscriptDataSource {
             });
         }
 
-        sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+        sessions.sort_by_key(|s| std::cmp::Reverse(s.modified));
         Ok(sessions)
     }
 
@@ -223,8 +372,8 @@ mod tests {
             r#"{"type":"user"}"#,
         );
 
-        let config =
-            Config::new_with_codex_data_dir(root.to_path_buf(), root.join("codex")).expect("config");
+        let config = Config::new_with_codex_data_dir(root.to_path_buf(), root.join("codex"))
+            .expect("config");
         let ds = TranscriptDataSource::new(config);
         let sessions = ds.list_sessions().expect("sessions");
 
